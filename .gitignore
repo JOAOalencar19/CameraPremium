@@ -1,0 +1,13 @@
+build/
+.gradle/
+local.properties
+*.iml
+.idea/
+captures/
+.externalNativeBuild/
+.cxx/
+*.keystore
+!tools/debug.keystore
+app/build/
+imaging/build/
+imaging-cli/build/
