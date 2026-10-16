@@ -18,8 +18,8 @@ ANDROID_JAR="${ANDROID_JAR:-/root/android-deps/android-all-15-robolectric-126505
 LINK_JAR="${LINK_JAR:-/usr/lib/android-sdk/platforms/android-23/android.jar}"
 BT="${BUILD_TOOLS:-/usr/lib/android-sdk/build-tools/debian}"
 OUT="$ROOT/build/offline"
-VERSION_CODE=2
-VERSION_NAME="0.1.1"
+VERSION_CODE=3
+VERSION_NAME="0.1.2"
 MIN_SDK=31
 TARGET_SDK=35
 
@@ -50,6 +50,10 @@ STDLIB="$OUT/kotlin-stdlib-dx.jar"
 INDY=$(cd "$OUT/classes" && find . -name '*.class' -print0 | xargs -0 javap -c -p 2>/dev/null | grep -c invokedynamic || true)
 if [ "$INDY" != "0" ]; then echo "ERRO: $INDY invokedynamic no bytecode do app" >&2; exit 1; fi
 python3 "$ROOT/tools/check-indy.py" "$OUT/classes" "$OUT/stdlib" 2>&1 | grep -v JAVA_TOOL_OPTIONS
+[ "${PIPESTATUS[0]}" = "0" ] || { echo "invokedynamic detectado" >&2; exit 1; }
+echo "[3b/6] verificando uso apenas de API publica do Android"
+python3 "$ROOT/tools/check-public-api.py" "$OUT/classes" "$ROOT/tools/android-api-35.txt" 2>&1 | grep -v JAVA_TOOL_OPTIONS
+[ "${PIPESTATUS[0]}" = "0" ] || { echo "API nao publica detectada" >&2; exit 1; }
 
 echo "[4/6] dex (dx)"
 "$BT/dx" --dex --min-sdk-version=26 --output="$OUT/dex/classes.dex" "$OUT/classes" "$STDLIB" 2>&1 | grep -v JAVA_TOOL_OPTIONS || true

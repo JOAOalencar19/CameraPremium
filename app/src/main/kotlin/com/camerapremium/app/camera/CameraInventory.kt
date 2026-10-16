@@ -39,7 +39,8 @@ class LensInfo(
     val minFocusDistance: Float = c.get(CameraCharacteristics.LENS_INFO_MINIMUM_FOCUS_DISTANCE) ?: 0f
     val afModes: IntArray = c.get(CameraCharacteristics.CONTROL_AF_AVAILABLE_MODES) ?: intArrayOf()
     val aeCompRange: android.util.Range<Int>? = c.get(CameraCharacteristics.CONTROL_AE_COMPENSATION_RANGE)
-    val aeCompStep: Float = c.get(CameraCharacteristics.CONTROL_AE_COMPENSATION_STEP)?.toFloat() ?: 0f
+    // Rational.toFloat() is hidden API: go through Number.floatValue()
+    val aeCompStep: Float = (c.get(CameraCharacteristics.CONTROL_AE_COMPENSATION_STEP) as Number?)?.toFloat() ?: 0f
     val isoRange: android.util.Range<Int>? = c.get(CameraCharacteristics.SENSOR_INFO_SENSITIVITY_RANGE)
     val exposureRange: android.util.Range<Long>? = c.get(CameraCharacteristics.SENSOR_INFO_EXPOSURE_TIME_RANGE)
     val oisModes: IntArray = c.get(CameraCharacteristics.LENS_INFO_AVAILABLE_OPTICAL_STABILIZATION) ?: intArrayOf()
@@ -126,7 +127,7 @@ class LensInfo(
 
     companion object {
         fun toArray(t: android.hardware.camera2.params.ColorSpaceTransform): FloatArray =
-            FloatArray(9) { val r = it / 3; val col = it % 3; t.getElement(col, r).toFloat() }
+            FloatArray(9) { val r = it / 3; val col = it % 3; (t.getElement(col, r) as Number).toFloat() }
 
         /** DNG/camera2 reference illuminant enum -> CCT (K). */
         fun illuminantCct(i: Int): Float = when (i) {
