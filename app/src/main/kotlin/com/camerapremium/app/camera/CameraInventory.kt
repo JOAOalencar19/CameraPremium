@@ -104,6 +104,13 @@ class LensInfo(
 
     val front get() = facing == CameraCharacteristics.LENS_FACING_FRONT
 
+    /** Public camera2 bokeh (portrait) for stills, if the HAL offers it. */
+    val bokehZoomRange: android.util.Range<Float>? = if (Build.VERSION.SDK_INT >= 30) {
+        c.get(CameraCharacteristics.CONTROL_AVAILABLE_EXTENDED_SCENE_MODE_CAPABILITIES)
+            ?.firstOrNull { it.mode == CameraMetadata.CONTROL_EXTENDED_SCENE_MODE_BOKEH_STILL_CAPTURE }?.zoomRatioRange
+    } else null
+    val supportsBokeh get() = bokehZoomRange != null
+
     fun lensProfile(): LensProfile = LensProfile.forFocalClass(id, equivalentFocal, front)
 
     private fun sizes(format: Int): List<Size> =

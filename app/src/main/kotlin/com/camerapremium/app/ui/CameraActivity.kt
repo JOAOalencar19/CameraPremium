@@ -104,6 +104,10 @@ class CameraActivity : Activity(), CameraController.Listener, PhotoProcessor.Lis
         super.onCreate(savedInstanceState)
         app = CameraPremiumApp.of(this)
         settings = app.settings
+        // created up-front (no permission needed) so UI callbacks can always reach it
+        inventory = app.inventory
+        controller = CameraController(this, inventory, app.processor)
+        controller.listener = this
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         window.navigationBarColor = Color.TRANSPARENT
         buildUi()
@@ -286,7 +290,6 @@ class CameraActivity : Activity(), CameraController.Listener, PhotoProcessor.Lis
         }
         permissionView.visibility = View.GONE
         startCamera()
-        app.processor.listener = this
         app.store.latest()?.let { r -> lastRecordId = r.id }
         refreshTopBar()
     }
@@ -294,13 +297,13 @@ class CameraActivity : Activity(), CameraController.Listener, PhotoProcessor.Lis
     override fun onPause() {
         super.onPause()
         orientationListener.disable()
-        if (::controller.isInitialized) controller.close()
+        controller.close()
         if (countdownRunning) countdownRunning = false
     }
 
     override fun onDestroy() {
         super.onDestroy()
-        if (::controller.isInitialized) controller.release()
+        controller.release()
         sound.release()
         if (app.processor.listener === this) app.processor.listener = null
     }
@@ -321,11 +324,8 @@ class CameraActivity : Activity(), CameraController.Listener, PhotoProcessor.Lis
     }
 
     private fun startCamera() {
-        inventory = app.ensureInventory()
-        if (!::controller.isInitialized) {
-            controller = CameraController(this, inventory, app.processor)
-            controller.listener = this
-        }
+        app.ensureInventory()
+        app.processor.listener = this
         val target = if (settings.useFront) inventory.front ?: inventory.rearLogical else inventory.rearLogical ?: inventory.front
         if (target == null) { showHint("Nenhuma camera disponivel", 4000); return }
         val stops = stopsFor(target)
@@ -333,11 +333,18 @@ class CameraActivity : Activity(), CameraController.Listener, PhotoProcessor.Lis
         zoomBar.minFactor = stops.firstOrNull()?.factor ?: 1f
         zoomBar.maxFactor = if (target.front) (target.zoomRange?.upper ?: 1f) else inventory.rearMaxFactor()
         factor = 1f; zoomBar.factor = 1f
-        modes = listOf(CaptureMode.PHOTO, CaptureMode.NIGHT, CaptureMode.PRO)
-        modeSelector.modes = modes.map { it.label }
-        modeSelector.selected = modes.indexOf(mode).coerceAtLeast(0)
+        refreshModes(target)
         open(target, ratio = stops.firstOrNull { abs(it.factor - 1f) < 0.01f }?.ratioOnCamera ?: 1f)
         setMode(mode)
+    }
+
+    /** Portrait appears only when this camera offers the public camera2 bokeh mode. */
+    private fun refreshModes(l: LensInfo) {
+        modes = if (l.supportsBokeh) listOf(CaptureMode.PHOTO, CaptureMode.PORTRAIT, CaptureMode.NIGHT, CaptureMode.PRO)
+        else listOf(CaptureMode.PHOTO, CaptureMode.NIGHT, CaptureMode.PRO)
+        if (mode !in modes) mode = CaptureMode.PHOTO
+        modeSelector.modes = modes.map { it.label }
+        modeSelector.selected = modes.indexOf(mode).coerceAtLeast(0)
     }
 
     private fun stopsFor(l: LensInfo): List<ZoomStop> = if (l.front) inventory.frontStops else inventory.rearStops
@@ -401,6 +408,7 @@ class CameraActivity : Activity(), CameraController.Listener, PhotoProcessor.Lis
     }
 
     private fun pinch(scale: Float) {
+        if (lens == null) return
         val now = System.currentTimeMillis()
         val f = (factor * scale).coerceIn(zoomBar.minFactor, zoomBar.maxFactor)
         val r = route(f, null)
@@ -448,6 +456,8 @@ class CameraActivity : Activity(), CameraController.Listener, PhotoProcessor.Lis
         factor = 1f; zoomBar.factor = 1f
         overlay.clearFocusRing()
         switchTo(next, stops.firstOrNull { abs(it.factor - 1f) < 0.01f }?.ratioOnCamera ?: 1f)
+        refreshModes(next)
+        setMode(mode)
         refreshTopBar()
     }
 
@@ -495,7 +505,8 @@ class CameraActivity : Activity(), CameraController.Listener, PhotoProcessor.Lis
         shutter.night = m == CaptureMode.NIGHT
         manualPanel?.let { root.removeView(it) }
         manualPanel = null
-        if (::controller.isInitialized) controller.setManual(null)
+        controller.setManual(null)
+        controller.setPortrait(m == CaptureMode.PORTRAIT)
         val l = lens
         if (m == CaptureMode.PRO && l != null) {
             val panel = ManualPanel(this, l) { s -> controller.setManual(s) }
@@ -640,7 +651,7 @@ class CameraActivity : Activity(), CameraController.Listener, PhotoProcessor.Lis
 
     override fun onQueueChanged(pending: Int) {
         thumb.processing = pending
-        if (::controller.isInitialized) shutter.busy = !app.processor.canAcceptCapture()
+        shutter.busy = !app.processor.canAcceptCapture()
     }
 
     companion object {

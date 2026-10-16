@@ -46,6 +46,8 @@ class CaptureJob(
     val originalFromJpeg: Boolean,
     val expectRaw: Boolean,
     val lensLabel: String,
+    /** Flash capture: one request feeds both the original JPEG and the processing YUV. */
+    val flashCombined: Boolean = false,
 ) {
     @Volatile var expectedBurst = plan.frames
     @Volatile var burstImages = 0

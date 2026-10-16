@@ -116,6 +116,7 @@ class CameraController(
     private var meteringRegion: MeteringRectangle? = null
     private var tapFocusAt = 0L
     private var manual: ManualSettings? = null
+    private var portrait = false
     @Volatile var lastResult: TotalCaptureResult? = null
         private set
     @Volatile var sceneHint = SceneHint()
@@ -123,6 +124,7 @@ class CameraController(
     private var lastPhysical: String? = null
     private var analysisCount = 0
     private var openToken = 0
+    private var configuring = false
 
     // ---- capture state machine
     private enum class St { IDLE, WAIT_AF, WAIT_PRE, WAIT_NON_PRE, CAPTURING }
@@ -140,6 +142,8 @@ class CameraController(
         closeInternal()
         val l = inventory.lenses[lensId] ?: run { post { listener?.onError("Camera $lensId indisponivel") }; return@post }
         lens = l; this.aspect = aspect; this.highRes = highRes; this.rawWanted = raw
+        // the SurfaceView is resized for the new stream: wait for the UI to hand it back
+        previewSurface = null
         zoomRatio = 1f; evIndex = 0; aeAfLocked = false; meteringRegion = null; manual = null
         val ps = choosePreviewSize(l, aspect)
         previewSize = ps
@@ -166,7 +170,7 @@ class CameraController(
     /** Surface of the SurfaceView once it has the preview size. */
     fun setPreviewSurface(holder: SurfaceHolder?) = cam.post {
         previewSurface = holder?.surface
-        if (previewSurface != null && device != null && session == null) tryCreateSession()
+        if (previewSurface != null && device != null && session == null && !configuring) tryCreateSession()
     }
 
     fun close() = cam.post { closeInternal() }
@@ -195,6 +199,9 @@ class CameraController(
     fun setFlash(mode: FlashMode) = cam.post { flash = mode; updatePreview() }
 
     fun setManual(m: ManualSettings?) = cam.post { manual = m; updatePreview() }
+
+    /** Portrait = camera2 extended scene mode BOKEH_STILL_CAPTURE (only when the HAL offers it). */
+    fun setPortrait(on: Boolean) = cam.post { portrait = on; updatePreview() }
 
     /** Tap to focus/meter at a point of the preview (normalized view coordinates). */
     fun focusAt(nx: Float, ny: Float, lock: Boolean) = cam.post {
@@ -241,9 +248,11 @@ class CameraController(
         val aeState = r?.get(CaptureResult.CONTROL_AE_STATE)
         flashWillFire = l.flashAvailable && !l.front && manual == null &&
             (flash == FlashMode.ON || (flash == FlashMode.AUTO && aeState == CameraMetadata.CONTROL_AE_STATE_FLASH_REQUIRED))
-        val alreadyFocused = afState == CameraMetadata.CONTROL_AF_STATE_FOCUSED_LOCKED || afState == CameraMetadata.CONTROL_AF_STATE_PASSIVE_FOCUSED
+        // Lock AF even when already in focus, so every burst frame shares the same focus position
+        // (locking from PASSIVE_FOCUSED is immediate).
+        val locked = afState == CameraMetadata.CONTROL_AF_STATE_FOCUSED_LOCKED || afState == CameraMetadata.CONTROL_AF_STATE_NOT_FOCUSED_LOCKED
         if (l.hasAutoFocus && !aeAfLocked && manual?.focusDistance == null &&
-            afMode == CameraMetadata.CONTROL_AF_MODE_CONTINUOUS_PICTURE && !alreadyFocused) {
+            afMode == CameraMetadata.CONTROL_AF_MODE_CONTINUOUS_PICTURE && !locked) {
             trigger(CaptureRequest.CONTROL_AF_TRIGGER, CameraMetadata.CONTROL_AF_TRIGGER_START)
             setState(St.WAIT_AF)
         } else afterFocus()
@@ -270,7 +279,8 @@ class CameraController(
 
     private fun tryCreateSession() {
         val l = lens ?: return
-        if (previewSurface == null || device == null) return
+        if (previewSurface == null || device == null || configuring) return
+        configuring = true
         val target = if (aspect == AspectRatio.R1_1) AspectRatio.R4_3.value else aspect.value
         val yuv = bestSize(l.yuvSizes, target, 16_800_000L)
         val jpeg = bestSize(l.jpegSizes, target)
@@ -293,10 +303,13 @@ class CameraController(
     }
 
     private fun createNext() {
-        val d = device ?: return
-        val surface = previewSurface ?: return
+        val d = device ?: run { configuring = false; return }
+        val surface = previewSurface ?: run { configuring = false; return }
         closeReaders()
-        if (attemptIndex >= attempts.size) { post { listener?.onError("Nenhuma combinacao de fluxos foi aceita pela camera") }; return }
+        if (attemptIndex >= attempts.size) {
+            configuring = false
+            post { listener?.onError("Nenhuma combinacao de fluxos foi aceita pela camera") }; return
+        }
         val a = attempts[attemptIndex++]
         val outputs = ArrayList<OutputConfiguration>()
         outputs.add(OutputConfiguration(surface))
@@ -329,6 +342,7 @@ class CameraController(
         highResSession = a.maxRes
         val cfg = SessionConfiguration(SessionConfiguration.SESSION_REGULAR, outputs, camExecutor, object : CameraCaptureSession.StateCallback() {
             override fun onConfigured(s: CameraCaptureSession) {
+                configuring = false
                 if (device !== d) { s.close(); return }
                 session = s
                 startPreview()
@@ -382,7 +396,13 @@ class CameraController(
     private fun applyCommon(b: CaptureRequest.Builder, preview: Boolean) {
         val l = lens ?: return
         b.set(CaptureRequest.CONTROL_MODE, CameraMetadata.CONTROL_MODE_AUTO)
-        if (l.zoomRange != null) b.set(CaptureRequest.CONTROL_ZOOM_RATIO, zoomRatio)
+        val bokeh = portrait && l.supportsBokeh && Build.VERSION.SDK_INT >= 30
+        if (Build.VERSION.SDK_INT >= 30 && l.extendedSceneModes.isNotEmpty()) {
+            b.set(CaptureRequest.CONTROL_EXTENDED_SCENE_MODE,
+                if (bokeh) CameraMetadata.CONTROL_EXTENDED_SCENE_MODE_BOKEH_STILL_CAPTURE else CameraMetadata.CONTROL_EXTENDED_SCENE_MODE_DISABLED)
+        }
+        val zr = if (bokeh) l.bokehZoomRange else null
+        if (l.zoomRange != null) b.set(CaptureRequest.CONTROL_ZOOM_RATIO, if (zr != null) zoomRatio.coerceIn(zr.lower, zr.upper) else zoomRatio)
         else b.set(CaptureRequest.SCALER_CROP_REGION, cropFor(l.activeArray, zoomRatio))
         val m = manual
         // focus
@@ -569,6 +589,7 @@ class CameraController(
 
         // ---- plan
         val plan: BurstPlan = when {
+            portrait && l.supportsBokeh && jpeg != null -> BurstPlan(0, null, null, null, 0f, CameraMetadata.NOISE_REDUCTION_MODE_HIGH_QUALITY, false, "retrato (bokeh do sistema)")
             highResSession || yuv == null -> BurstPlan(0, null, null, null, 0f, CameraMetadata.NOISE_REDUCTION_MODE_HIGH_QUALITY, false, "somente JPEG do sistema")
             flashWillFire -> BurstPlan(1, null, null, null, 0f, CameraMetadata.NOISE_REDUCTION_MODE_HIGH_QUALITY, false, "flash: quadro unico")
             m != null && (m.iso != null || m.exposureNs != null) -> {
@@ -587,12 +608,13 @@ class CameraController(
         val faces = facesFrom(r, l, yuv?.width ?: jpeg?.width ?: 4, yuv?.height ?: jpeg?.height ?: 3, yuvCrop)
         val physical = r?.let { if (Build.VERSION.SDK_INT >= 29) it.get(CaptureResult.LOGICAL_MULTI_CAMERA_ACTIVE_PHYSICAL_ID) else null }
         val label = if (physical != null) inventory.labelFor(inventory.lenses[physical]) else inventory.labelFor(l)
+        val flashCombined = flashWillFire && yuv != null && jpeg != null
         val newJob = CaptureJob(
             id = System.currentTimeMillis(), lens = l,
             options = spec.options,
             rotation = rotation, mirror = mirror, crop = yuvCrop, jpegCrop = jpegCrop, plan = plan,
             srgbCurve = useSrgbCurve, faces = faces, mode = spec.mode, originalFromJpeg = jpeg != null,
-            expectRaw = rawReader != null, lensLabel = label,
+            expectRaw = rawReader != null, lensLabel = label, flashCombined = flashCombined,
         )
         job = newJob
         processor.begin(newJob)
@@ -611,7 +633,7 @@ class CameraController(
             } else if (yuv != null) orig.addTarget(yuv.surface)
             rawReader?.let { orig.addTarget(it.surface) }
             setQuality(orig, l, hq = true)
-            if (flashWillFire && yuv != null && jpeg != null) {
+            if (flashCombined) {
                 // flash fires once: one request feeds both the original JPEG and the processing YUV
                 orig.addTarget(yuv.surface)
                 orig.setTag(FrameRole.ORIGINAL)
@@ -649,7 +671,7 @@ class CameraController(
                     requests.add(b.build())
                 }
             }
-            if (flashWillFire && yuv != null && jpeg != null) newJob.expectedBurst = 1
+            if (flashCombined) newJob.expectedBurst = 1
             val estimated = requests.size * ((plan.exposureNs ?: 33_000_000L).coerceAtLeast(33_000_000L)) / 1_000_000L
             post { listener?.onCaptureStarted(newJob.expectedBurst, estimated) }
             s.captureBurst(requests, stillCallback, cam)
@@ -686,7 +708,7 @@ class CameraController(
             when (request.tag as? FrameRole) {
                 FrameRole.ORIGINAL -> {
                     j.originalResult = result
-                    if (j.refResult == null && j.expectedBurst == 1 && flashWillFire) j.refResult = result
+                    if (j.refResult == null && j.flashCombined) j.refResult = result
                     pendingRaw?.let { writeDng(j, it, result); pendingRaw = null }
                 }
                 FrameRole.BURST -> if (j.refResult == null) j.refResult = result
@@ -791,7 +813,7 @@ class CameraController(
         try {
             when (role ?: FrameRole.BURST) {
                 FrameRole.ORIGINAL -> {
-                    if (flashWillFire && j.originalFromJpeg) {
+                    if (j.flashCombined) {
                         // flash request: YUV of the same exposure goes to processing
                         val f = Frames.copy(image)
                         j.burstImages++
@@ -906,6 +928,7 @@ class CameraController(
 
     private fun closeInternal() {
         openToken++
+        configuring = false
         val j = job
         if (j != null) { processor.abort(j, "Captura interrompida"); job = null }
         setState(St.IDLE)
