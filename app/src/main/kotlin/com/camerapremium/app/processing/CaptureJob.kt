@@ -19,6 +19,9 @@ class JobOptions(
     val saveOriginalToGallery: Boolean,
     val jpegQuality: Int,
     val raw: Boolean,
+    /** User sharpness preference (Suave/Natural/Definida) applied on top of the profile. */
+    val sharpnessScale: Float = 1f,
+    val skinSmoothing: Boolean = false,
 )
 
 enum class FrameRole { ORIGINAL, BURST, RAW }

@@ -11,7 +11,7 @@ import android.view.animation.DecelerateInterpolator
 import com.camerapremium.app.ui.Theme
 
 /** The app's own icon set, drawn on a 24x24 grid with round strokes (no third-party assets). */
-enum class Glyph { FLASH_AUTO, FLASH_ON, FLASH_OFF, TIMER, SETTINGS, FLIP, SUN, MOON, LOCK, CLOSE, BACK }
+enum class Glyph { FLASH_AUTO, FLASH_ON, FLASH_OFF, TIMER, SETTINGS, FLIP, SUN, MOON, LOCK, CLOSE, BACK, MORE, GALLERY }
 
 object Glyphs {
     fun draw(c: Canvas, g: Glyph, cx: Float, cy: Float, size: Float, color: Int, badge: String? = null) {
@@ -48,7 +48,7 @@ object Glyphs {
                 for ((i, y) in floatArrayOf(6f, 12f, 18f).withIndex()) {
                     c.drawLine(4f * s, y * s, 20f * s, y * s, p)
                     val kx = floatArrayOf(15f, 8f, 13f)[i]
-                    val fill = Paint(p).apply { style = Paint.Style.FILL; this.color = 0xFF000000.toInt() }
+                    val fill = Paint(p).apply { style = Paint.Style.FILL; this.color = Theme.BLACK }
                     c.drawCircle(kx * s, y * s, 2.2f * s, fill)
                     c.drawCircle(kx * s, y * s, 2.2f * s, p)
                 }
@@ -87,10 +87,20 @@ object Glyphs {
             }
             Glyph.CLOSE -> { c.drawLine(6f * s, 6f * s, 18f * s, 18f * s, p); c.drawLine(18f * s, 6f * s, 6f * s, 18f * s, p) }
             Glyph.BACK -> { c.drawLine(15f * s, 5f * s, 8f * s, 12f * s, p); c.drawLine(8f * s, 12f * s, 15f * s, 19f * s, p) }
+            Glyph.MORE -> {
+                val f = Paint(p).apply { style = Paint.Style.FILL }
+                for (x in floatArrayOf(6f, 12f, 18f)) c.drawCircle(x * s, 12f * s, 1.6f * s, f)
+            }
+            Glyph.GALLERY -> {
+                c.drawRoundRect(RectF(4f * s, 5f * s, 20f * s, 19f * s), 3f * s, 3f * s, p)
+                val path = Path().apply { moveTo(4.5f * s, 16.5f * s); lineTo(9.5f * s, 11.5f * s); lineTo(13f * s, 15f * s); lineTo(15.5f * s, 12.5f * s); lineTo(19.5f * s, 16.5f * s) }
+                c.drawPath(path, p)
+                c.drawCircle(15.5f * s, 8.8f * s, 1.3f * s, p)
+            }
         }
         c.restore()
         if (badge != null) {
-            val t = Paint(Paint.ANTI_ALIAS_FLAG).apply { this.color = Theme.ACCENT; textSize = 9f * s; typeface = Theme.SANS_MEDIUM; textAlign = Paint.Align.CENTER }
+            val t = Paint(Paint.ANTI_ALIAS_FLAG).apply { this.color = Theme.WHITE; textSize = 9f * s; typeface = Theme.SANS_MEDIUM; textAlign = Paint.Align.CENTER }
             c.drawText(badge, cx + 9f * s, cy + 12f * s, t)
         }
     }
@@ -127,7 +137,7 @@ class GlyphButton(ctx: Context, var glyph: Glyph) : View(ctx) {
         val cx = width / 2f; val cy = height / 2f
         if (fillColor != 0) { bg.color = fillColor; c.drawCircle(cx, cy, minOf(width, height) / 2f, bg) }
         val alpha = if (isPressed) 0.6f else 1f
-        val col = (color and 0x00FFFFFF) or ((((color ushr 24) and 0xFF) * alpha).toInt() shl 24)
+        val col = Theme.alpha(color, ((color ushr 24) and 0xFF) / 255f * alpha)
         c.save(); c.rotate(angle, cx, cy)
         Glyphs.draw(c, glyph, cx, cy, glyphSize, col, badge)
         c.restore()

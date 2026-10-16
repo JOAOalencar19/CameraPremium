@@ -134,7 +134,7 @@ class CameraActivity : Activity(), CameraController.Listener, PhotoProcessor.Lis
 
     private fun buildUi() {
         val ctx = this
-        root = FrameLayout(ctx).apply { setBackgroundColor(Color.BLACK) }
+        root = FrameLayout(ctx).apply { setBackgroundColor(Theme.BLACK) }
         setContentView(root)
 
         previewFrame = FrameLayout(ctx).apply { clipChildren = true }
@@ -154,12 +154,12 @@ class CameraActivity : Activity(), CameraController.Listener, PhotoProcessor.Lis
         }
         aspectChip = Theme.label(ctx, settings.aspect.label, 12f, Theme.WHITE, true).apply {
             setPadding(Theme.dpi(ctx, 10f), Theme.dpi(ctx, 4f), Theme.dpi(ctx, 10f), Theme.dpi(ctx, 4f))
-            background = Theme.pill(0, Theme.dp(ctx, 8f), Theme.dpi(ctx, 1.2f), Theme.WHITE_DIM)
+            background = Theme.pill(0, Theme.dp(ctx, 8f), Theme.dpi(ctx, 1.2f), Theme.GRAY_LIGHT)
             setOnClickListener { cycleAspect() }
         }
-        sceneChip = Theme.label(ctx, "", 11f, Color.BLACK, true).apply {
+        sceneChip = Theme.label(ctx, "", 11f, Theme.ON_SELECTED, true).apply {
             setPadding(Theme.dpi(ctx, 8f), Theme.dpi(ctx, 3f), Theme.dpi(ctx, 8f), Theme.dpi(ctx, 3f))
-            background = Theme.pill(Theme.ACCENT, Theme.dp(ctx, 6f)); visibility = View.GONE
+            background = Theme.pill(Theme.SELECTED, Theme.dp(ctx, 6f)); visibility = View.GONE
         }
         val top = LinearLayout(ctx).apply {
             orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
@@ -189,7 +189,7 @@ class CameraActivity : Activity(), CameraController.Listener, PhotoProcessor.Lis
         shutter = ShutterButton(ctx).apply { setOnClickListener { onShutter() } }
         thumb = ThumbnailView(ctx).apply { setOnClickListener { openReview() } }
         flipBtn = GlyphButton(ctx, Glyph.FLIP).apply {
-            fillColor = Theme.PANEL_2; glyphSize = Theme.dp(ctx, 26f)
+            fillColor = Theme.alpha(Theme.GRAY_DARK, 0.7f); glyphSize = Theme.dp(ctx, 26f)
             setOnClickListener { flip() }; contentDescription = "Alternar camera"
         }
         val bottom = FrameLayout(ctx)
@@ -204,12 +204,12 @@ class CameraActivity : Activity(), CameraController.Listener, PhotoProcessor.Lis
         }
         root.addView(hint, FrameLayout.LayoutParams(-2, -2).also { it.gravity = Gravity.CENTER })
 
-        screenFlash = View(ctx).apply { setBackgroundColor(Color.rgb(255, 250, 240)); visibility = View.GONE }
+        screenFlash = View(ctx).apply { setBackgroundColor(Theme.WHITE); visibility = View.GONE }
         root.addView(screenFlash, FrameLayout.LayoutParams(-1, -1))
 
         permissionView = LinearLayout(ctx).apply {
             orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER; visibility = View.GONE
-            setBackgroundColor(Color.BLACK)
+            setBackgroundColor(Theme.BLACK)
             addView(Theme.label(ctx, "O CameraPremium precisa da camera para fotografar.", 16f).apply { gravity = Gravity.CENTER; setPadding(60, 0, 60, 40) })
             addView(Theme.button(ctx, "Permitir camera", primary = true) { requestPermissions(arrayOf(Manifest.permission.CAMERA), REQ_CAMERA) })
         }
@@ -477,10 +477,10 @@ class CameraActivity : Activity(), CameraController.Listener, PhotoProcessor.Lis
     private fun refreshTopBar() {
         val front = lens?.front == true
         flashBtn.glyph = when (settings.flash) { FlashMode.AUTO -> Glyph.FLASH_AUTO; FlashMode.ON -> Glyph.FLASH_ON; FlashMode.OFF -> Glyph.FLASH_OFF }
-        flashBtn.color = if (settings.flash != FlashMode.OFF) Theme.ACCENT else Theme.WHITE
+        flashBtn.color = if (settings.flash != FlashMode.OFF) Theme.WHITE else Theme.GRAY_LIGHT
         flashBtn.visibility = if (front && !settings.screenFlash) View.INVISIBLE else View.VISIBLE
         timerBtn.badge = if (settings.timerSeconds > 0) settings.timerSeconds.toString() else null
-        timerBtn.color = if (settings.timerSeconds > 0) Theme.ACCENT else Theme.WHITE
+        timerBtn.color = if (settings.timerSeconds > 0) Theme.WHITE else Theme.GRAY_LIGHT
         aspectChip.text = settings.aspect.label
         overlay.grid = settings.grid
         flashBtn.invalidate()
@@ -568,8 +568,11 @@ class CameraActivity : Activity(), CameraController.Listener, PhotoProcessor.Lis
                 saveOriginalToGallery = settings.saveOriginalToGallery,
                 jpegQuality = settings.jpegQuality,
                 raw = settings.raw,
+                sharpnessScale = settings.sharpness.scale,
+                skinSmoothing = settings.skinSmoothing,
             ),
             multiFrame = settings.multiFrame,
+            nativeSource = settings.captureSource == com.camerapremium.app.settings.CaptureSource.NATIVE,
         )
         if (l.front && settings.flash != FlashMode.OFF && settings.screenFlash) {
             screenFlash.alpha = 1f; screenFlash.visibility = View.VISIBLE

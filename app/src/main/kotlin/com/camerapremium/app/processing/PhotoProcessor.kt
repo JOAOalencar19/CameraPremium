@@ -177,7 +177,14 @@ class PhotoProcessor(private val ctx: Context, private val inventory: CameraInve
                 colorSpace = if (opts.displayP3) OutputColorSpace.DISPLAY_P3 else OutputColorSpace.SRGB,
                 gainMap = gainMap,
             )
-            val res = pipeline.process(src, info, ProcessingProfile.byId(opts.profileId), outOpts, sink, merged)
+            val base = ProcessingProfile.byId(opts.profileId)
+            val profile = base.copy(
+                sharpenBurst = base.sharpenBurst * opts.sharpnessScale,
+                sharpenSingleSrgb = base.sharpenSingleSrgb * opts.sharpnessScale,
+                sharpenSystemRendered = base.sharpenSystemRendered * opts.sharpnessScale,
+                skinSmoothing = if (opts.skinSmoothing) 0.3f else 0f,
+            )
+            val res = pipeline.process(src, info, profile, outOpts, sink, merged)
             job.mark("pipeline_done")
             res.whiteBalance.renderCct?.let { lastWhite = WhiteMemory(it, System.currentTimeMillis(), info.lens.key) }
             var hdrAttached = false

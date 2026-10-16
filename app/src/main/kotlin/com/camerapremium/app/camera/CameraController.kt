@@ -59,6 +59,7 @@ class CaptureSpec(
     val mode: CaptureMode,
     val options: JobOptions,
     val multiFrame: Boolean,
+    val nativeSource: Boolean = true,
 )
 
 /**
@@ -596,7 +597,7 @@ class CameraController(
                 val t = m.exposureNs ?: aeT
                 BurstPlan(if (t > 250_000_000L) 1 else 3, null, null, null, 0f, CameraMetadata.NOISE_REDUCTION_MODE_FAST, false, "manual")
             }
-            else -> CapturePlanner.plan(l, spec.mode, aeT, aeIso, sceneHint, spec.multiFrame)
+            else -> CapturePlanner.plan(l, spec.mode, aeT, aeIso, sceneHint, spec.multiFrame, spec.nativeSource, thermalThrottle())
         }
         val useSrgbCurve = plan.frames > 0 && !flashWillFire && (l.supportsSrgbTonemap || l.supportsContrastCurve) && plan.exposureNs != null
 
@@ -683,6 +684,12 @@ class CameraController(
             finishCaptureSequence()
         }
     }
+
+    /** True when the device reports severe heat (Android 10+ thermal API). */
+    private fun thermalThrottle(): Boolean = try {
+        val pm = ctx.getSystemService(Context.POWER_SERVICE) as android.os.PowerManager
+        pm.currentThermalStatus >= android.os.PowerManager.THERMAL_STATUS_SEVERE
+    } catch (_: Exception) { false }
 
     private fun setQuality(b: CaptureRequest.Builder, l: LensInfo, hq: Boolean) {
         if (!hq) return

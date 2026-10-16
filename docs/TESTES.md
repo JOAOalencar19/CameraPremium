@@ -6,8 +6,10 @@
 |---|---|
 | Compilação do app (Kotlin, API 35) | ✅ sem erros |
 | APK assinado (v3) | ✅ `tools/build-offline.sh` → `build/outputs/CameraPremium-debug.apk` (~0,95 MB) |
+| Paleta monocromática da UI | ✅ verificada no build (`tools/check-palette.py`) |
+| Somente API pública do Android | ✅ verificada no build contra API 35/36/main (`tools/check-public-api.py`) |
 | Bytecode compatível com ART sem desugaring | ✅ verificado (0 `invokedynamic` no app; 63 métodos do stdlib usados, nenhum com `invokedynamic`) |
-| Pipeline fotográfico (JVM) | ✅ 41/41 verificações objetivas |
+| Pipeline fotográfico (JVM) | ✅ 48/48 verificações objetivas (v0.2.0) |
 | Fotos reais de amostra (JPEG públicos) | ✅ inspeção visual; um defeito encontrado e corrigido (ver abaixo) |
 | Build Gradle/AGP | ⚠️ **não executado aqui** (repositórios Google bloqueados). Arquivos escritos para AGP 8.13 + Kotlin 2.2.21 |
 | Instalação, abertura, câmeras, captura, salvamento | ❌ **não testados** — nenhum aparelho conectado neste ambiente |
@@ -84,3 +86,15 @@ Qualidade (seguir o protocolo de comparação com iPhone)
 
 Logcat útil: `adb logcat -s CameraPremium` mostra a sessão escolhida, o plano do burst
 (ISO/exposição/quadros) e os tempos de cada etapa.
+
+## v0.2.0 — testes adicionados
+```
+nitidez: sem duplicar a do sistema     gradiente nao aumenta em fonte ja nitida pelo ISP; sem novos halos
+nitidez: nao amplifica ruido           area lisa ruidosa: sigma L* 1.11 -> 0.54
+pele: brilho especular contido         excesso local do brilho 17.5 -> 15.2 L* (volume mantido)
+pele: suavizacao opcional              poros: gradiente 1.674 -> 1.592 (>90%); manchas p5..p95 4.12 -> 4.01
+tons de pele (Monk 1-10)               pele clara nao e escurecida (bug do roll-off absoluto corrigido)
+```
+Interface (v0.2.0): compila; paleta verificada automaticamente. **Não foi possível executar a
+interface** neste ambiente (sem aparelho/emulador): layout, toque no divisor, segmentos, sheets e
+áreas seguras precisam ser conferidos no S26 Ultra.

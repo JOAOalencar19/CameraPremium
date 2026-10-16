@@ -10,6 +10,7 @@ import kotlin.math.ceil
 import kotlin.math.exp
 import kotlin.math.max
 import kotlin.math.min
+import kotlin.math.sqrt
 
 /**
  * Everything the per-tile renderer needs, decided once on a low-resolution view of the image.
@@ -34,6 +35,8 @@ class RenderPlan(
     val stats: SceneStats,
     val whiteBalance: WhiteBalance.Decision,
     val sourceKind: SourceKind,
+    /** Spatial scale of fine detail relative to a 12 MP frame (sharpening radius follows it). */
+    val detailScale: Float = 1f,
 )
 
 class SceneStats(
@@ -215,13 +218,14 @@ object SceneAnalyzer {
         Filters.guidedCoefficients(lg2, delta, gw, gh, 2, ConstantEps(0.02f), toneA, toneB, ws)
 
         val sharpen = profile.sharpenFor(info.sourceKind) * info.lens.sharpenScale
-        val micro = if (rendered) 0f else profile.microContrast + 0.08f * (1f - cHi)
+        val micro = if (rendered) 0f else profile.microContrast + 0.05f * (1f - cHi)
+        val detailScale = sqrt(w.toDouble() * h / 12e6).toFloat().coerceIn(0.85f, 1.4f)
 
         val stats = SceneStats(
             sceneEv = ev, dayFactor = day, nightFactor = night, keyLog2 = key, p1Log2 = p1, p995Log2 = p995,
             dynamicRangeStops = p995 - p1, highlightCompression = cHi, shadowCompression = cLo,
             exposureEv = exposure, targetKey = target, clippedFraction = clippedFraction, faces = faces.size,
         )
-        return RenderPlan(w, h, m, gw, gh, scale, toneA, toneB, curve, skinPrior, sharpen, micro, stats, wb, info.sourceKind)
+        return RenderPlan(w, h, m, gw, gh, scale, toneA, toneB, curve, skinPrior, sharpen, micro, stats, wb, info.sourceKind, detailScale)
     }
 }

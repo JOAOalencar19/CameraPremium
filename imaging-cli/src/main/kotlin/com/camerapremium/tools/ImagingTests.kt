@@ -52,6 +52,10 @@ object ImagingTests {
             "nitidez: sem halos" to { sharpenHalo() },
             "ruido: reduz sem plastificar" to { noise() },
             "cabelo/pelo nao e ruido" to { hairTexture() },
+            "nitidez: sem duplicar a do sistema" to { noDoubleSharpen() },
+            "nitidez: nao amplifica ruido em areas lisas" to { flatNoiseNotSharpened() },
+            "pele: brilho especular contido" to { skinSpecular() },
+            "pele: suavizacao opcional preserva poros" to { skinSmoothingOptional() },
             "fusao: reduz ruido e evita fantasmas" to { burst() },
             "desempenho 12 MP" to { perf() },
         )
@@ -64,9 +68,10 @@ object ImagingTests {
         return if (failures == 0) 0 else 1
     }
 
-    private fun process(img: ArgbImage, kind: SourceKind, info: CaptureInfo? = null, opt: OutputOptions = OutputOptions(dither = false)): Pair<ArgbImage, PhotoPipeline.Result> {
+    private fun process(img: ArgbImage, kind: SourceKind, info: CaptureInfo? = null, opt: OutputOptions = OutputOptions(dither = false),
+                        profile: ProcessingProfile = ProcessingProfile.NATURAL_PREMIUM): Pair<ArgbImage, PhotoPipeline.Result> {
         val out = ArgbImage(img.width, img.height)
-        val res = PhotoPipeline(pool).process(ArgbSource(img), info ?: CaptureInfo(kind), ProcessingProfile.NATURAL_PREMIUM, opt, ArgbSink(out))
+        val res = PhotoPipeline(pool).process(ArgbSource(img), info ?: CaptureInfo(kind), profile, opt, ArgbSink(out))
         return out to res
     }
 
@@ -285,6 +290,64 @@ object ImagingTests {
             check("textura de fios mantida ($kind)", eOut > eIn * 0.9, "energia %.2f -> %.2f".format(eIn, eOut))
             if (kind == SourceKind.SYSTEM_RENDERED) DesktopIO.write(DesktopIO.sideBySide(img, out), File(outDir, "fios_antes_depois.png"))
         }
+    }
+
+    private fun noDoubleSharpen() {
+        val img = Synthetic.edges()
+        val (out, _) = process(img, SourceKind.SYSTEM_RENDERED)
+        val gi = ImageMetrics.stats(img).gradientEnergy; val go = ImageMetrics.stats(out).gradientEnergy
+        check("fonte ja nitida pelo ISP nao recebe outra mascara", go < gi * 1.06, "gradiente %.3f -> %.3f".format(gi, go))
+        val oi = ImageMetrics.stats(img).overshootIndex; val oo = ImageMetrics.stats(out).overshootIndex
+        check("sem novos halos", oo <= oi + 0.002, "overshoot %.4f -> %.4f".format(oi, oo))
+    }
+
+    private fun flatNoiseNotSharpened() {
+        val flat = Synthetic.addNoise(Synthetic.flat(400, 300, 140), 3f, 31)
+        val (out, _) = process(flat, SourceKind.BURST_MERGED)
+        val ni = ImageMetrics.stats(flat).noiseSigma; val no = ImageMetrics.stats(out).noiseSigma
+        check("ruido nao e realcado pela nitidez", no < ni, "sigma L* %.2f -> %.2f".format(ni, no))
+    }
+
+    /** Skin-colored face with fine pores, gentle blotches and a specular spot. */
+    private fun skinFace(): ArgbImage {
+        val w = 360; val h = 360
+        val img = ArgbImage(w, h)
+        val rnd = java.util.Random(77)
+        val pores = FloatArray(w * h) { (rnd.nextGaussian() * 0.035).toFloat() }
+        for (y in 0 until h) for (x in 0 until w) {
+            val blotch = 0.03f * Math.sin(x * 0.08).toFloat() * Math.sin(y * 0.07).toFloat()
+            val dx = (x - 250f) / 22f; val dy = (y - 120f) / 16f
+            val spec = 0.32f * Math.exp(-(dx * dx + dy * dy).toDouble()).toFloat()
+            val k = 1f + pores[y * w + x] + blotch + spec
+            img.pixels[y * w + x] = Synthetic.rgb((194 * k).toInt(), (150 * k).toInt(), (130 * k).toInt())
+        }
+        return img
+    }
+
+    private fun skinSpecular() {
+        val img = skinFace()
+        val info = CaptureInfo(SourceKind.SINGLE_SRGB_CURVE, faces = listOf(FaceRegion(0f, 0f, 1f, 1f)))
+        val (out, _) = process(img, SourceKind.SINGLE_SRGB_CURVE, info)
+        DesktopIO.write(DesktopIO.sideBySide(img, out), File(outDir, "pele_brilho_antes_depois.png"))
+        val specIn = labOf(meanRect(img, 240, 112, 20, 16))[0] - labOf(meanRect(img, 60, 220, 60, 60))[0]
+        val specOut = labOf(meanRect(out, 240, 112, 20, 16))[0] - labOf(meanRect(out, 60, 220, 60, 60))[0]
+        check("excesso do brilho reduzido", specOut < specIn - 0.5, "dL* brilho-pele %.1f -> %.1f".format(specIn, specOut))
+        check("brilho nao some (pele continua com volume)", specOut > specIn * 0.5, "%.1f".format(specOut))
+    }
+
+    private fun skinSmoothingOptional() {
+        val img = skinFace()
+        val info = CaptureInfo(SourceKind.SINGLE_SRGB_CURVE, faces = listOf(FaceRegion(0f, 0f, 1f, 1f)))
+        val (off, _) = process(img, SourceKind.SINGLE_SRGB_CURVE, info)
+        val (on, _) = process(img, SourceKind.SINGLE_SRGB_CURVE, info, profile = ProcessingProfile.NATURAL_PREMIUM.copy(skinSmoothing = 0.35f))
+        DesktopIO.write(DesktopIO.sideBySide(off, on), File(outDir, "pele_suavizacao_desligada_ligada.png"))
+        val region = ImageMetrics.Region(0.05f, 0.5f, 0.5f, 0.45f)
+        val gOff = ImageMetrics.stats(off, region).gradientEnergy; val gOn = ImageMetrics.stats(on, region).gradientEnergy
+        check("poros preservados com suavizacao ligada", gOn > gOff * 0.9, "gradiente %.3f -> %.3f".format(gOff, gOn))
+        val pOff = ImageMetrics.stats(off, region).lPercentiles; val pOn = ImageMetrics.stats(on, region).lPercentiles
+        val spreadOff = pOff[5] - pOff[1]; val spreadOn = pOn[5] - pOn[1]
+        check("manchas de media frequencia atenuadas, sutilmente", spreadOn < spreadOff && spreadOn > spreadOff * 0.75,
+            "faixa L* p5..p95 %.2f -> %.2f".format(spreadOff, spreadOn))
     }
 
     private fun burst() {

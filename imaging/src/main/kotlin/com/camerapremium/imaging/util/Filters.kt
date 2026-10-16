@@ -113,6 +113,31 @@ object Filters {
         }
     }
 
+    /** Separable gaussian with arbitrary sigma (radius ceil(2.5 sigma), max 3). */
+    fun gauss(src: FloatArray, dst: FloatArray, w: Int, h: Int, sigma: Float, tmp: FloatArray) {
+        val r = kotlin.math.ceil(2.5f * sigma).toInt().coerceIn(1, 3)
+        val k = FloatArray(2 * r + 1)
+        var sum = 0f
+        for (i in -r..r) { k[i + r] = kotlin.math.exp(-(i * i) / (2f * sigma * sigma)); sum += k[i + r] }
+        for (i in k.indices) k[i] /= sum
+        for (y in 0 until h) {
+            val row = y * w
+            for (x in 0 until w) {
+                var a = 0f
+                for (j in -r..r) a += k[j + r] * src[row + (x + j).coerceIn(0, w - 1)]
+                tmp[row + x] = a
+            }
+        }
+        for (y in 0 until h) {
+            val row = y * w
+            for (x in 0 until w) {
+                var a = 0f
+                for (j in -r..r) a += k[j + r] * tmp[(y + j).coerceIn(0, h - 1) * w + x]
+                dst[row + x] = a
+            }
+        }
+    }
+
     /** Integer-factor box downsample (averaging). Output size ceil(w/f) x ceil(h/f). */
     fun downsample(src: FloatArray, w: Int, h: Int, f: Int, dst: FloatArray) {
         val ow = (w + f - 1) / f

@@ -47,12 +47,12 @@ class ViewfinderOverlay(ctx: Context) : View(ctx) {
     private var lastY = 0f
     private var blink = 0f
 
-    private val line = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(70, 255, 255, 255); strokeWidth = Theme.dp(ctx, 0.8f) }
-    private val ringP = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; color = Theme.ACCENT; strokeWidth = Theme.dp(ctx, 1.4f) }
-    private val maskP = Paint().apply { color = Color.argb(200, 0, 0, 0) }
+    private val line = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Theme.alpha(Theme.WHITE, 0.27f); strokeWidth = Theme.dp(ctx, 0.8f) }
+    private val ringP = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; color = Theme.WHITE; strokeWidth = Theme.dp(ctx, 1.4f) }
+    private val maskP = Paint().apply { color = Theme.alpha(Theme.BLACK, 0.78f) }
     private val textP = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Theme.WHITE; textAlign = Paint.Align.CENTER; typeface = Theme.SANS_MEDIUM }
-    private val chipP = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Theme.ACCENT }
-    private val blinkP = Paint().apply { color = Color.BLACK }
+    private val chipP = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Theme.SELECTED }
+    private val blinkP = Paint().apply { color = Theme.BLACK }
 
     private val scaleDetector = ScaleGestureDetector(ctx, object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
         override fun onScale(d: ScaleGestureDetector): Boolean { listener?.onPinch(d.scaleFactor); return true }
@@ -150,15 +150,15 @@ class ViewfinderOverlay(ctx: Context) : View(ctx) {
             val sy = focusY - (ev / evRange) * trackH / 2f
             if (sy - Theme.dp(context, 14f) > t0) c.drawLine(sx, t0, sx, sy - Theme.dp(context, 14f), ringP)
             if (sy + Theme.dp(context, 14f) < t1) c.drawLine(sx, sy + Theme.dp(context, 14f), sx, t1, ringP)
-            Glyphs.draw(c, Glyph.SUN, sx, sy, Theme.dp(context, 22f), Theme.ACCENT)
+            Glyphs.draw(c, Glyph.SUN, sx, sy, Theme.dp(context, 22f), Theme.WHITE)
             if (kotlin.math.abs(ev) > 0.05f) {
-                textP.textSize = Theme.dp(context, 12f); textP.color = Theme.ACCENT
+                textP.textSize = Theme.dp(context, 12f); textP.color = Theme.WHITE
                 c.drawText("%+.1f".format(ev).replace(',', '.'), sx, t1 + Theme.dp(context, 16f), textP)
             }
         }
         val lt = lockedText
         if (lt != null) {
-            textP.textSize = Theme.dp(context, 11f); textP.color = Color.BLACK
+            textP.textSize = Theme.dp(context, 11f); textP.color = Theme.ON_SELECTED
             val tw = textP.measureText(lt) + Theme.dp(context, 20f)
             val cy = top + Theme.dp(context, 22f)
             val rr = RectF(w / 2f - tw / 2f, cy - Theme.dp(context, 12f), w / 2f + tw / 2f, cy + Theme.dp(context, 12f))

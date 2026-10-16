@@ -92,3 +92,42 @@ estética (tom, cor, ruído residual e nitidez).
 - Se o S26 Ultra não oferecer `TONEMAP_PRESET_CURVE`/`CONTRAST_CURVE` ou `MANUAL_SENSOR` a
   apps de terceiros, o burst cai para AE travado + curva do HAL e a fonte é tratada como
   "renderizada pelo sistema" (efeito mais leve).
+
+## 5. Revisão 0.2.0 — auditoria de nitidez, pele e captura nativa
+
+**Diagnóstico** (antes desta versão):
+- Fonte processada pelo sistema (ISP com `EDGE_MODE_HIGH_QUALITY`) recebia mais uma máscara de
+  nitidez (0,10) — **nitidez dupla**.
+- O burst próprio (ISP sem nitidez) recebia USM 0,60 + microcontraste até 0,12 e permitia
+  overshoot de 1,2% — contornos de poros, cílios e sobrancelhas marcados demais.
+- Raio fixo, sem proteção de áreas lisas nem queda com o ruído.
+- O burst próprio desligava NR, nitidez e curva do ISP sem validação no aparelho.
+
+**Agora:**
+- Fonte do sistema: **nenhuma** nitidez adicional; NR de luma só residual (×0,2) com 50% de grão.
+- Nitidez própria: burst 0,38 / quadro sRGB 0,24 (×0,7 Suave, ×1,25 Definida); raio σ 0,9 px
+  escalado pela resolução; limiar absoluto + limiar proporcional ao ruído; **confiança de
+  textura** do filtro guiado (áreas lisas recebem 35%); quantidade cai pela metade quando o
+  ruído atinge σ 0,012; pele ×0,45; overshoot máximo **0,6%**; microcontraste 0,025.
+- Pele: NR cromático ×1,6 apenas na máscara de pele (manchas/vermelhidão de cor, sem tocar a
+  textura de luma); *roll-off* de brilho especular calculado sobre o **excesso local** (uma pele
+  clara uniforme não é escurecida); suavização sutil **opcional, desligada por padrão**, atuando
+  só na banda média com proteção de contornos.
+- NR de luma ×0,7 em boa luz.
+- Captura padrão **nativa**: cada quadro do burst mantém NR/nitidez/curva HQ do ISP, AE travado,
+  sem subexposição; a fusão só remove ruído residual. O burst com ISP desligado virou opção
+  "Multiquadro próprio (experimental)" em Ajustes.
+- Temperatura: com status térmico ≥ SEVERE o burst cai para 3 quadros (a resolução nunca é reduzida).
+
+**Medição com as mesmas entradas reais** (fonte do sistema, versão anterior → nova):
+
+| Foto | Energia de gradiente entrada / anterior / nova | Overshoot anterior → nova |
+|---|---|---|
+| babuíno (pelos) | 14,51 / 14,55 / 14,17 | 0,1455 → 0,1408 |
+| prédio (linhas) | 7,73 / 7,69 / 7,50 | 0,1093 → 0,1044 |
+| retrato no estádio | 5,98 / 5,97 / 5,79 | 0,1224 → 0,1165 |
+| frutas (cores) | 4,67 / 4,95 / 4,75 | 0,1129 → 0,1074 |
+
+Menos halos em todas; detalhe dentro de 0–3% da entrada (parte da diferença vem do ajuste
+tonal/cor, não da NR). São JPEGs públicos, não capturas do S26 Ultra: a validação de pele,
+cílios e sobrancelhas em retratos reais ainda precisa ser feita no aparelho.

@@ -9,7 +9,7 @@ package com.camerapremium.imaging.pipeline
  * They still need tuning against real Galaxy S26 Ultra captures and iPhone references
  * (see docs/PROTOCOLO_COMPARACAO_IPHONE.md).
  */
-class ProcessingProfile(
+data class ProcessingProfile(
     val id: String,
     val displayName: String,
 
@@ -61,21 +61,46 @@ class ProcessingProfile(
     val skinHueCenterDeg: Float = 58f,
     val skinHueTolerance: Float = 12f,
     val skinHuePull: Float = 0.25f,
-    val skinSharpenScale: Float = 0.6f,
+    val skinSharpenScale: Float = 0.45f,
+    /** Chroma NR multiplier on skin: removes color blotches/redness noise, never luma texture. */
+    val skinChromaNrBoost: Float = 1.6f,
+    /** Specular roll-off on skin (forehead, nose): only the *local* excess over the surrounding
+     *  skin above this margin is compressed, so naturally light skin is never darkened. */
+    val skinHighlightMargin: Float = 0.03f,
+    val skinHighlightSlope: Float = 0.6f,
+    /** Optional subtle smoothing of mid-frequency blotches on skin (0 = off, default). Pores,
+     *  lashes and contours are protected by the edge/texture confidence mask. */
+    val skinSmoothing: Float = 0f,
 
     // ---- noise ----
     val lumaNrStrength: Float = 2.0f,
     /** Fraction of the removed luminance noise added back as fine grain (prevents the plastic look). */
     val grainRetention: Float = 0.3f,
     val chromaNrStrength: Float = 2.5f,
+    /** Luma NR multiplier in good light (blends in with the scene's day factor). */
+    val wellLitNrScale: Float = 0.7f,
+    /** The ISP already denoised a system-rendered source: luma NR is only a light residual pass. */
+    val renderedLumaNrScale: Float = 0.2f,
+    val renderedGrainRetention: Float = 0.5f,
 
     // ---- sharpening ----
-    val sharpenBurst: Float = 0.6f,
-    val sharpenSingleSrgb: Float = 0.35f,
-    val sharpenSystemRendered: Float = 0.10f,
-    val sharpenOvershoot: Float = 0.012f,
-    val coringSigmas: Float = 2.0f,
-    val microContrast: Float = 0.04f,
+    // Audit: a SYSTEM_RENDERED source was already sharpened by the ISP (EDGE_MODE HQ), so it
+    // gets no second unsharp mask. Our own sharpening runs only where the ISP's was turned off.
+    val sharpenBurst: Float = 0.38f,
+    val sharpenSingleSrgb: Float = 0.24f,
+    val sharpenSystemRendered: Float = 0f,
+    /** Gaussian sigma (px at 12 MP) of the unsharp mask; scaled with resolution. */
+    val sharpenRadius: Float = 0.9f,
+    /** Absolute coring threshold (Oklab L) added to the noise-based one. */
+    val sharpenThreshold: Float = 0.0025f,
+    /** Max overshoot beyond the 3x3 neighbourhood (Oklab L): the halo limiter. */
+    val sharpenOvershoot: Float = 0.006f,
+    val coringSigmas: Float = 2.5f,
+    /** Noise level at which sharpening is halved. */
+    val sharpenNoiseRef: Float = 0.012f,
+    /** Fraction of sharpening kept on flat/smooth areas (protected by texture confidence). */
+    val sharpenFlatFloor: Float = 0.35f,
+    val microContrast: Float = 0.025f,
 ) {
     fun sharpenFor(kind: SourceKind) = when (kind) {
         SourceKind.BURST_MERGED -> sharpenBurst

@@ -18,8 +18,8 @@ ANDROID_JAR="${ANDROID_JAR:-/root/android-deps/android-all-15-robolectric-126505
 LINK_JAR="${LINK_JAR:-/usr/lib/android-sdk/platforms/android-23/android.jar}"
 BT="${BUILD_TOOLS:-/usr/lib/android-sdk/build-tools/debian}"
 OUT="$ROOT/build/offline"
-VERSION_CODE=3
-VERSION_NAME="0.1.2"
+VERSION_CODE=4
+VERSION_NAME="0.2.0"
 MIN_SDK=31
 TARGET_SDK=35
 
@@ -28,6 +28,8 @@ for f in "$KOTLINC" "$ANDROID_JAR" "$LINK_JAR" "$BT/dx" "$BT/aapt2"; do
 done
 
 rm -rf "$OUT"; mkdir -p "$OUT/classes" "$OUT/dex" "$OUT/res"
+echo "[0/6] verificando paleta monocromatica da interface"
+python3 "$ROOT/tools/check-palette.py" "$ROOT/app/src/main"
 echo "[1/6] recursos (aapt2)"
 "$BT/aapt2" compile --dir "$ROOT/app/src/main/res" -o "$OUT/res/compiled.zip"
 "$BT/aapt2" link -o "$OUT/base.apk" -I "$LINK_JAR" \

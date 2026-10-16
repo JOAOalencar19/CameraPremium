@@ -51,16 +51,16 @@ class ManualPanel(ctx: Context, private val lens: LensInfo, private val onChange
         val row = LinearLayout(ctx).apply { orientation = HORIZONTAL; gravity = Gravity.CENTER }
         val chips = ArrayList<TextView>()
         for ((name, mode) in presets) {
-            val chip = Theme.label(ctx, name, 12f, Theme.WHITE, true).apply {
+            val chip = Theme.label(ctx, name, 12f, Theme.TEXT_DIM, true).apply {
                 setPadding(Theme.dpi(ctx, 9f), Theme.dpi(ctx, 6f), Theme.dpi(ctx, 9f), Theme.dpi(ctx, 6f))
             }
             chip.setOnClickListener {
                 awb = mode
-                for (c in chips) c.setTextColor(Theme.WHITE)
-                chip.setTextColor(Theme.ACCENT)
+                for (c in chips) { c.setTextColor(Theme.TEXT_DIM); c.background = null }
+                chip.setTextColor(Theme.ON_SELECTED); chip.background = Theme.pill(Theme.SELECTED, Theme.dp(ctx, 12f))
                 emit()
             }
-            if (mode == null) chip.setTextColor(Theme.ACCENT)
+            if (mode == null) { chip.setTextColor(Theme.ON_SELECTED); chip.background = Theme.pill(Theme.SELECTED, Theme.dp(ctx, 12f)) }
             chips.add(chip)
             row.addView(chip)
         }
@@ -69,11 +69,11 @@ class ManualPanel(ctx: Context, private val lens: LensInfo, private val onChange
 
     private fun addSlider(name: String, format: (Float) -> String, reset: () -> Unit) {
         val row = LinearLayout(context).apply { orientation = HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
-        val label = Theme.label(context, name, 12f, Theme.WHITE_DIM, true).apply { minWidth = Theme.dpi(context, 72f) }
-        val value = Theme.label(context, "A", 12f, Theme.ACCENT, true).apply { minWidth = Theme.dpi(context, 52f); gravity = Gravity.END }
+        val label = Theme.label(context, name, 12f, Theme.TEXT_DIM, true).apply { minWidth = Theme.dpi(context, 72f) }
+        val value = Theme.label(context, "A", 12f, Theme.WHITE, true).apply { minWidth = Theme.dpi(context, 52f); gravity = Gravity.END }
         val bar = SeekBar(context).apply {
             max = 1000
-            progressTintList = ColorStateList.valueOf(Theme.ACCENT)
+            progressTintList = ColorStateList.valueOf(Theme.WHITE)
             thumbTintList = ColorStateList.valueOf(Theme.WHITE)
             progressBackgroundTintList = ColorStateList.valueOf(Theme.LINE)
         }

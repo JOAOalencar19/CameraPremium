@@ -31,7 +31,7 @@ class ShutterButton(ctx: Context) : View(ctx) {
     private var press = 1f
     private val ring = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; color = Theme.WHITE }
     private val disc = Paint(Paint.ANTI_ALIAS_FLAG)
-    private val arc = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; color = Theme.ACCENT; strokeCap = Paint.Cap.ROUND }
+    private val arc = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; color = Theme.WHITE; strokeCap = Paint.Cap.ROUND }
 
     init { isClickable = true; contentDescription = "Capturar" }
 
@@ -59,8 +59,8 @@ class ShutterButton(ctx: Context) : View(ctx) {
         ring.alpha = if (busy && progress < 0f) 120 else 255
         c.drawCircle(cx, cy, r - stroke / 2f, ring)
         disc.color = when {
-            busy -> Color.argb(150, 246, 244, 239)
-            night -> Color.rgb(255, 228, 170)
+            busy -> Theme.alpha(Theme.WHITE, 0.55f)
+            night -> Theme.GRAY_LIGHT // night is shown by tone, not hue
             else -> Theme.WHITE
         }
         c.drawCircle(cx, cy, (r - stroke * 2.3f) * press, disc)
@@ -92,7 +92,7 @@ class ZoomBar(ctx: Context) : View(ctx) {
     var textAngle = 0f
         set(v) { field = v; invalidate() }
     private val bg = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Theme.SCRIM }
-    private val pill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(150, 20, 20, 20) }
+    private val pill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Theme.alpha(Theme.GRAY_DARK, 0.6f) }
     private val text = Paint(Paint.ANTI_ALIAS_FLAG).apply { textAlign = Paint.Align.CENTER; typeface = Theme.SANS_MEDIUM }
     private val pillD = Theme.dp(ctx, 34f)
     private val gap = Theme.dp(ctx, 8f)
@@ -121,8 +121,9 @@ class ZoomBar(ctx: Context) : View(ctx) {
             val cy = h / 2f
             val selected = i == sel
             val radius = if (selected) pillD / 2f else pillD / 2f * 0.78f
+            pill.color = if (selected) Theme.SELECTED else Theme.alpha(Theme.GRAY_DARK, 0.6f)
             c.drawCircle(cx, cy, radius, pill)
-            text.color = if (selected) Theme.ACCENT else Theme.WHITE
+            text.color = if (selected) Theme.ON_SELECTED else Theme.WHITE
             text.textSize = if (selected) pillD * 0.36f else pillD * 0.3f
             val label = if (selected && abs(factor - s.factor) > 0.05f) ZoomStop.formatFactor(factor) + "×"
             else if (selected) s.label + "×" else s.label
@@ -175,7 +176,8 @@ class ModeSelector(ctx: Context) : View(ctx) {
         val cx = width / 2f
         val y = height / 2f - (p.descent() + p.ascent()) / 2f
         for ((i, m) in modes.withIndex()) {
-            p.color = if (i == selected) Theme.ACCENT else Theme.WHITE_DIM
+            p.color = if (i == selected) Theme.WHITE else Theme.GRAY_MID
+            p.typeface = if (i == selected) Theme.SANS_MEDIUM else Theme.SANS
             c.drawText(m, cx + (i - selected) * spacing, y, p)
         }
     }
@@ -199,8 +201,8 @@ class ModeSelector(ctx: Context) : View(ctx) {
 class ThumbnailView(ctx: Context) : View(ctx) {
     private var bmp: Bitmap? = null
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
-    private val ring = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; color = Theme.WHITE_DIM }
-    private val arc = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; color = Theme.ACCENT; strokeCap = Paint.Cap.ROUND }
+    private val ring = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; color = Theme.alpha(Theme.WHITE, 0.6f) }
+    private val arc = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; color = Theme.WHITE; strokeCap = Paint.Cap.ROUND }
     var processing = 0
         set(v) { field = v; if (v > 0) spin() ; invalidate() }
     private var spinAngle = 0f
@@ -236,7 +238,7 @@ class ThumbnailView(ctx: Context) : View(ctx) {
             paint.shader = shader
             c.drawCircle(cx, cy, r, paint)
         } else {
-            paint.shader = null; paint.color = Theme.PANEL_2
+            paint.shader = null; paint.color = Theme.SURFACE
             c.drawCircle(cx, cy, r, paint)
         }
         ring.strokeWidth = Theme.dp(context, 1.5f)

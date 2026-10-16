@@ -1,7 +1,9 @@
 package com.camerapremium.app.ui
 
 import android.app.Activity
-import android.app.AlertDialog
+import com.camerapremium.app.ui.views.Sheet
+import com.camerapremium.app.settings.CaptureSource
+import com.camerapremium.app.settings.Sharpness
 import android.content.Intent
 import android.content.res.ColorStateList
 import android.graphics.Color
@@ -30,7 +32,7 @@ class SettingsActivity : Activity() {
         val inv = app.ensureInventory()
         val rear = inv.rearLogical
         list = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(Theme.dpi(context, 20f), 0, Theme.dpi(context, 20f), Theme.dpi(context, 40f)) }
-        val scroll = ScrollView(this).apply { setBackgroundColor(Color.BLACK); addView(list) }
+        val scroll = ScrollView(this).apply { setBackgroundColor(Theme.BLACK); addView(list) }
         setContentView(scroll)
         scroll.setOnApplyWindowInsetsListener { v, insets ->
             val b = insets.getInsets(WindowInsets.Type.systemBars())
@@ -46,6 +48,16 @@ class SettingsActivity : Activity() {
             "Natural Premium usa a fusao multiquadro e o pipeline proprio. O original do sistema e sempre preservado para comparacao.") {
             s.processing = if (it == 0) ProcessingChoice.NATURAL_PREMIUM else ProcessingChoice.SYSTEM_ONLY
         }
+        choice("Fonte do Natural Premium", listOf("Nativa do aparelho", "Multiquadro proprio (experimental)"),
+            if (s.captureSource == CaptureSource.NATIVE) 0 else 1,
+            "Nativa preserva a reducao de ruido, a nitidez e a curva do processador de imagem do aparelho em cada quadro. A experimental desliga esses ajustes do ISP e usa o HDR proprio; use para comparar.") {
+            s.captureSource = if (it == 0) CaptureSource.NATIVE else CaptureSource.CUSTOM_BURST
+        }
+        choice("Nitidez", listOf("Suave", "Natural", "Definida"), s.sharpness.ordinal,
+            "Natural evita contornos marcados. Fontes ja nitidas pelo aparelho nao recebem nitidez extra.") {
+            s.sharpness = Sharpness.values()[it]
+        }
+        toggle("Suavizacao sutil da pele", s.skinSmoothing, "Atenua so manchas de media frequencia. Poros, cilios, sobrancelhas e contornos sao preservados.") { s.skinSmoothing = it }
         toggle("Fusao multiquadro (HDR + ruido)", s.multiFrame, "Captura varios quadros curtos e os funde com protecao contra fantasmas.") { s.multiFrame = it }
         if (Build.VERSION.SDK_INT >= 34) toggle("Ultra HDR", s.ultraHdr, "Grava um mapa de ganho: altas luzes brilham em telas HDR, a imagem SDR continua identica.") { s.ultraHdr = it }
         toggle("Cor ampla (Display P3)", s.displayP3, "Arquivo com perfil P3. Desligado = sRGB, compativel com tudo.") { s.displayP3 = it }
@@ -78,7 +90,7 @@ class SettingsActivity : Activity() {
     }
 
     private fun section(t: String) {
-        list.addView(Theme.label(this, t.uppercase(), 12f, Theme.ACCENT, true).apply {
+        list.addView(Theme.label(this, t.uppercase(), 12f, Theme.GRAY_MID, true).apply {
             letterSpacing = 0.12f; setPadding(0, Theme.dpi(context, 26f), 0, Theme.dpi(context, 6f))
         })
     }
@@ -91,7 +103,7 @@ class SettingsActivity : Activity() {
         }
         val texts = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         texts.addView(Theme.label(this, title, 16f))
-        if (sub != null) texts.addView(Theme.label(this, sub, 12.5f, Theme.WHITE_DIM).apply { setPadding(0, Theme.dpi(context, 3f), Theme.dpi(context, 12f), 0) })
+        if (sub != null) texts.addView(Theme.label(this, sub, 12.5f, Theme.TEXT_DIM).apply { setPadding(0, Theme.dpi(context, 3f), Theme.dpi(context, 12f), 0) })
         r.addView(texts, LinearLayout.LayoutParams(0, -2, 1f))
         if (right != null) r.addView(right)
         if (onClick != null && enabled) r.setOnClickListener { onClick() }
@@ -103,25 +115,23 @@ class SettingsActivity : Activity() {
     private fun toggle(title: String, value: Boolean, sub: String?, enabled: Boolean = true, set: (Boolean) -> Unit) {
         val sw = Switch(this).apply {
             isChecked = value && enabled; isEnabled = enabled
-            thumbTintList = ColorStateList(arrayOf(intArrayOf(android.R.attr.state_checked), intArrayOf()), intArrayOf(Theme.ACCENT, Theme.WHITE_DIM))
-            trackTintList = ColorStateList(arrayOf(intArrayOf(android.R.attr.state_checked), intArrayOf()), intArrayOf(Theme.ACCENT_SOFT, Theme.LINE))
+            thumbTintList = ColorStateList(arrayOf(intArrayOf(android.R.attr.state_checked), intArrayOf()), intArrayOf(Theme.WHITE, Theme.GRAY_MID))
+            trackTintList = ColorStateList(arrayOf(intArrayOf(android.R.attr.state_checked), intArrayOf()), intArrayOf(Theme.alpha(Theme.WHITE, 0.45f), Theme.LINE))
             setOnCheckedChangeListener { _, c -> set(c) }
         }
         row(title, sub, sw, { sw.toggle() }, enabled)
     }
 
     private fun choice(title: String, options: List<String>, selected: Int, sub: String?, set: (Int) -> Unit) {
-        val value = Theme.label(this, options[selected.coerceIn(0, options.size - 1)], 14f, Theme.ACCENT, true)
+        val value = Theme.label(this, options[selected.coerceIn(0, options.size - 1)], 14f, Theme.GRAY_LIGHT, true)
         row(title, sub, value, {
-            AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
-                .setTitle(title)
-                .setSingleChoiceItems(options.toTypedArray(), options.indexOf(value.text.toString())) { d, which ->
-                    set(which); value.text = options[which]; d.dismiss()
-                }.show()
+            Sheet.choose(this, title, options, options.indexOf(value.text.toString())) { which ->
+                set(which); value.text = options[which]
+            }
         })
     }
 
     private fun action(title: String, sub: String?, onClick: () -> Unit) {
-        row(title, sub, Theme.label(this, "›", 22f, Theme.WHITE_DIM) as TextView, onClick)
+        row(title, sub, Theme.label(this, "›", 22f, Theme.TEXT_DIM) as TextView, onClick)
     }
 }

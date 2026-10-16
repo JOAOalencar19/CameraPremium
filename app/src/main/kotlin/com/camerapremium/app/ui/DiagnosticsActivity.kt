@@ -34,7 +34,7 @@ class DiagnosticsActivity : Activity() {
             val rt = Runtime.getRuntime()
             append("\nMemoria Java maxima: ${rt.maxMemory() / (1 shl 20)} MB, nucleos: ${rt.availableProcessors()}\n")
         }
-        val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setBackgroundColor(Color.BLACK) }
+        val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setBackgroundColor(Theme.BLACK) }
         val bar = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
             setPadding(Theme.dpi(context, 16f), Theme.dpi(context, 8f), Theme.dpi(context, 16f), Theme.dpi(context, 8f))
@@ -51,7 +51,7 @@ class DiagnosticsActivity : Activity() {
         }
         root.addView(bar)
         val text = TextView(this).apply {
-            this.text = report; setTextColor(Theme.WHITE_DIM); typeface = Typeface.MONOSPACE; textSize = 10.5f
+            this.text = report; setTextColor(Theme.TEXT_DIM); typeface = Typeface.MONOSPACE; textSize = 10.5f
             setTextIsSelectable(true)
             setPadding(Theme.dpi(context, 14f), 0, Theme.dpi(context, 14f), Theme.dpi(context, 30f))
         }

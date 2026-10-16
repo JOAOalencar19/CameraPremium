@@ -51,7 +51,36 @@ object CapturePlanner {
         aeIso: Int,
         hint: SceneHint,
         multiFrame: Boolean,
+        native: Boolean = true,
+        thermalThrottle: Boolean = false,
     ): BurstPlan {
+        val p = planInternal(lens, mode, aeExposureNs, aeIso, hint, multiFrame, native)
+        if (!thermalThrottle || p.frames <= 3) return p
+        // device is hot: fewer frames (never lower resolution)
+        return BurstPlan(3, p.exposureNs, p.iso, p.frameDurationNs, p.evBias, p.noiseReductionMode, p.edgeOff, p.reason + ", termico: 3 quadros")
+    }
+
+    private fun planInternal(
+        lens: LensInfo, mode: CaptureMode, aeExposureNs: Long, aeIso: Int, hint: SceneHint, multiFrame: Boolean, native: Boolean,
+    ): BurstPlan {
+        if (native) {
+            // Native: every frame keeps the ISP's HQ NR/sharpening/tone curve (AE locked, no
+            // underexposure). The merge then only removes residual noise; nothing of the
+            // manufacturer's processing is disabled.
+            if (!multiFrame || !lens.burstCapable) return BurstPlan(1, null, null, null, 0f, CameraMetadata.NOISE_REDUCTION_MODE_HIGH_QUALITY, false, "nativo: quadro unico")
+            var n = when {
+                aeIso <= 0 -> 3
+                aeIso <= 200 -> 3
+                aeIso <= 800 -> 4
+                aeIso <= 1600 -> 6
+                else -> 8
+            }
+            if (mode == CaptureMode.NIGHT) n = maxOf(n, 8)
+            val per = maxOf(aeExposureNs, 33_000_000L)
+            val budget = if (mode == CaptureMode.NIGHT) 3_000_000_000L else 900_000_000L
+            n = n.coerceAtMost((budget / per).toInt()).coerceIn(1, 10)
+            return BurstPlan(n, null, null, null, 0f, CameraMetadata.NOISE_REDUCTION_MODE_HIGH_QUALITY, false, "nativo ISP HQ, AE travado, ISO $aeIso")
+        }
         val nrMinimal = if (CameraMetadata.NOISE_REDUCTION_MODE_MINIMAL in lens.nrModes) CameraMetadata.NOISE_REDUCTION_MODE_MINIMAL
         else CameraMetadata.NOISE_REDUCTION_MODE_FAST
         val canEdgeOff = CameraMetadata.EDGE_MODE_OFF in lens.edgeModes

@@ -106,7 +106,8 @@ class TileRenderer(
         // ---- luma NR: self-guided filter with signal-dependent regularization
         // A system-rendered source was already denoised by the camera: only a light touch here.
         val rendered = plan.sourceKind == SourceKind.SYSTEM_RENDERED
-        val k = profile.lumaNrStrength * lensNoiseScale * (if (rendered) 0.35f else 1f)
+        val wellLit = Filters.lerp(1f, profile.wellLitNrScale, plan.stats.dayFactor)
+        val k = profile.lumaNrStrength * lensNoiseScale * wellLit * (if (rendered) profile.renderedLumaNrScale else 1f)
         val eps = object : EpsModel {
             override fun eps(meanGuide: Float, index: Int): Float {
                 val s = nm.lumaSigma(meanGuide) * ws.nf[index] * k
@@ -114,7 +115,7 @@ class TileRenderer(
             }
         }
         Filters.guidedCoefficients(ws.okL, ws.okL, pw, ph, 2, eps, ws.ca, ws.cb, ws.gws)
-        val rho = profile.grainRetention
+        val rho = if (rendered) profile.renderedGrainRetention else profile.grainRetention
         for (i in 0 until n) {
             val q = ws.ca[i] * ws.okL[i] + ws.cb[i]
             ws.ld[i] = q + rho * (ws.okL[i] - q)
@@ -144,7 +145,8 @@ class TileRenderer(
                 val fx = (xx - 0.5f) * 0.5f
                 val af = Filters.sampleBilinear(ws.hA2, hw, hh, fx, fy)
                 val bf = Filters.sampleBilinear(ws.hB2, hw, hh, fx, fy)
-                val thr = cs * nm.chromaSigma(ws.ld[i]) * ws.nf[i] + 1e-5f
+                val skinBoost = 1f + (profile.skinChromaNrBoost - 1f) * ws.skin[i]
+                val thr = cs * skinBoost * nm.chromaSigma(ws.ld[i]) * ws.nf[i] + 1e-5f
                 val da = ws.okA[i] - af; val db = ws.okB[i] - bf
                 val mag = sqrt(da * da + db * db)
                 val keep = Filters.smoothstep(thr, 2f * thr, mag)
@@ -154,7 +156,8 @@ class TileRenderer(
         }
 
         // ---- sharpening (detail band) + micro-contrast (mid band) on denoised luma
-        Filters.gauss5(ws.ld, ws.t1, pw, ph, ws.t2) // t1 = blur
+        // radius follows resolution: the same physical detail spans more pixels at 50 MP
+        Filters.gauss(ws.ld, ws.t1, pw, ph, profile.sharpenRadius * plan.detailScale, ws.t2) // t1 = blur
         // mid band: three passes of a radius-3 box ~ gaussian sigma 3.5
         Filters.boxMean(ws.ld, ws.okL, pw, ph, 3, ws.t2)
         Filters.boxMean(ws.okL, ws.okL, pw, ph, 3, ws.t2)
@@ -165,6 +168,12 @@ class TileRenderer(
         val ov = profile.sharpenOvershoot
         val skinScale = profile.skinSharpenScale
         val residual = sqrt(rho * rho + 0.05f)
+        val thr0 = profile.sharpenThreshold
+        val noiseRef = profile.sharpenNoiseRef
+        val flatFloor = profile.sharpenFlatFloor
+        val smoothing = profile.skinSmoothing
+        val specMargin = profile.skinHighlightMargin
+        val specKeep = profile.skinHighlightSlope
 
         // ---- output
         if (ws.argb.size < w * h) ws.argb = IntArray(w * h)
@@ -180,12 +189,31 @@ class TileRenderer(
                 val ld = ws.ld[i]
                 // detail band with noise-aware coring
                 val hd = ld - ws.t1[i]
-                val t = coring * nm.lumaSigma(ld) * ws.nf[i] * residual + 1e-5f
+                val sig = nm.lumaSigma(ld) * ws.nf[i]
+                val t = coring * sig * residual + thr0
                 val hc = hd * (hd * hd / (hd * hd + t * t))
                 val skin = ws.skin[i]
                 val shadow = 0.5f + 0.5f * Filters.smoothstep(0.08f, 0.25f, ld)
-                val a = amount * (1f - skin * (1f - skinScale)) * shadow
+                // texture confidence from the luma guided filter: ~0 on flat areas, ~1 on real
+                // edges/texture (lashes, hair, fabric). Flat areas keep only a fraction.
+                val conf = ws.ca[i].coerceIn(0f, 1f)
+                val texture = flatFloor + (1f - flatFloor) * conf
+                val sn = sig / noiseRef
+                val noiseFall = 1f / (1f + sn * sn)
+                val a = amount * (1f - skin * (1f - skinScale)) * shadow * texture * noiseFall
                 var s = ld + a * hc
+                // optional subtle skin smoothing: attenuates only the mid band (blotches), never
+                // the finest band (pores, hairs); contours with high confidence are protected
+                if (smoothing > 0f && skin > 0f) {
+                    val prot = (1f - conf) * (1f - conf)
+                    s -= smoothing * skin * prot * (ws.t1[i] - ws.okL[i])
+                }
+                // specular roll-off on skin: a hot spot is a local excess over the surrounding
+                // skin (mid-band blur), so uniformly light skin is untouched
+                if (skin > 0f && ld > 0.7f) {
+                    val excess = ld - ws.okL[i] - specMargin
+                    if (excess > 0f) s -= skin * excess * (1f - specKeep)
+                }
                 // overshoot clamp against the 3x3 neighbourhood -> no halos
                 var mn = ld; var mx = ld
                 for (dy in -1..1) {
