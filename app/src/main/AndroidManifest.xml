@@ -39,6 +39,9 @@
             android:exported="false"
             android:screenOrientation="portrait" />
         <activity
+            android:name="com.camerapremium.app.ui.CrashActivity"
+            android:exported="false" />
+        <activity
             android:name="com.camerapremium.app.ui.DiagnosticsActivity"
             android:exported="false"
             android:screenOrientation="portrait" />

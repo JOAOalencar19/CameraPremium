@@ -99,9 +99,17 @@ class CameraActivity : Activity(), CameraController.Listener, PhotoProcessor.Lis
     private var mode = CaptureMode.PHOTO
     private val sound = MediaActionSound()
     private lateinit var orientationListener: OrientationEventListener
+    private var crashedBefore = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // A previous run crashed: show the report first (it can be copied/shared from the phone).
+        if (com.camerapremium.app.CrashReporter.pending(this) != null) {
+            startActivity(Intent(this, CrashActivity::class.java))
+            crashedBefore = true
+            finish()
+            return
+        }
         app = CameraPremiumApp.of(this)
         settings = app.settings
         // created up-front (no permission needed) so UI callbacks can always reach it
@@ -282,6 +290,7 @@ class CameraActivity : Activity(), CameraController.Listener, PhotoProcessor.Lis
 
     override fun onResume() {
         super.onResume()
+        if (crashedBefore) return
         orientationListener.enable()
         if (checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
             permissionView.visibility = View.VISIBLE
@@ -296,6 +305,7 @@ class CameraActivity : Activity(), CameraController.Listener, PhotoProcessor.Lis
 
     override fun onPause() {
         super.onPause()
+        if (crashedBefore) return
         orientationListener.disable()
         controller.close()
         if (countdownRunning) countdownRunning = false
@@ -303,6 +313,7 @@ class CameraActivity : Activity(), CameraController.Listener, PhotoProcessor.Lis
 
     override fun onDestroy() {
         super.onDestroy()
+        if (crashedBefore) return
         controller.release()
         sound.release()
         if (app.processor.listener === this) app.processor.listener = null

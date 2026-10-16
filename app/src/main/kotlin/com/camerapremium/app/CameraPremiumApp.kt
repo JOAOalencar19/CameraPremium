@@ -16,6 +16,11 @@ class CameraPremiumApp : Application() {
     val processor by lazy { PhotoProcessor(this, inventory, store) }
     @Volatile var inventoryLoaded = false
 
+    override fun onCreate() {
+        super.onCreate()
+        CrashReporter.install(this)
+    }
+
     fun ensureInventory(): CameraInventory {
         if (!inventoryLoaded) { inventory.load(); inventoryLoaded = true }
         return inventory
