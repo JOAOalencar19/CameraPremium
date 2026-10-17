@@ -18,8 +18,8 @@ ANDROID_JAR="${ANDROID_JAR:-/root/android-deps/android-all-15-robolectric-126505
 LINK_JAR="${LINK_JAR:-/usr/lib/android-sdk/platforms/android-23/android.jar}"
 BT="${BUILD_TOOLS:-/usr/lib/android-sdk/build-tools/debian}"
 OUT="$ROOT/build/offline"
-VERSION_CODE=5
-VERSION_NAME="0.3.0"
+VERSION_CODE=6
+VERSION_NAME="0.3.1"
 MIN_SDK=31
 TARGET_SDK=35
 

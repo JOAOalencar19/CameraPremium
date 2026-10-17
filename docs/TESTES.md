@@ -9,7 +9,7 @@
 | Paleta monocromática da UI | ✅ verificada no build (`tools/check-palette.py`) |
 | Somente API pública do Android | ✅ verificada no build contra API 35/36/main (`tools/check-public-api.py`) |
 | Bytecode compatível com ART sem desugaring | ✅ verificado (0 `invokedynamic` no app; 63 métodos do stdlib usados, nenhum com `invokedynamic`) |
-| Pipeline fotográfico (JVM) | ✅ 51/51 verificações objetivas (v0.3.0) |
+| Pipeline fotográfico (JVM) | ✅ 57/57 verificações objetivas (v0.3.1) |
 | Fotos reais de amostra (JPEG públicos) | ✅ inspeção visual; um defeito encontrado e corrigido (ver abaixo) |
 | Build Gradle/AGP | ⚠️ **não executado aqui** (repositórios Google bloqueados). Arquivos escritos para AGP 8.13 + Kotlin 2.2.21 |
 | Instalação, abertura, câmeras, captura, salvamento | ❌ **não testados** — nenhum aparelho conectado neste ambiente |
@@ -98,3 +98,13 @@ tons de pele (Monk 1-10)               pele clara nao e escurecida (bug do roll-
 Interface (v0.2.0): compila; paleta verificada automaticamente. **Não foi possível executar a
 interface** neste ambiente (sem aparelho/emulador): layout, toque no divisor, segmentos, sheets e
 áreas seguras precisam ser conferidos no S26 Ultra.
+
+## v0.3.1 — testes adicionados (a partir de 12 fotos reais do S26)
+```
+hibrido: cor falsa (arco-iris)        desvio de croma 0.0368 -> 0.0021 (limpo 0.0010); textura de luma 85%
+                                      listras coloridas de 4 px: croma 0.1564 -> 0.1554
+hibrido: veu cinza                    L* p1 30.4 -> 26.2; p99 76.0 -> 77.7; 0% estourado
+                                      cena noturna: L* medio 49.5 -> 45.7
+```
+Fotos reais analisadas: 5 pares Original (HAL) x Natural Premium, ver `PIPELINE.md` §7. O efeito
+das correções **no aparelho ainda não foi verificado**.

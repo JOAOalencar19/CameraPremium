@@ -36,6 +36,12 @@ data class ProcessingProfile(
     /** Where the highlight shoulder starts, in stops above mid-gray. */
     val shoulderStartStops: Float = 1.0f,
     val blackFlare: Float = 0.0018f,
+    /** HYBRID (HAL tone) only: fraction of the black-point lift removed, linear display units. */
+    val hybridBlackPull: Float = 0.5f,
+    /** HYBRID only: the 99.5th percentile is stretched toward this display-linear level... */
+    val hybridWhiteTarget: Float = 0.82f,
+    /** ...with at most this gain (soft knee above 0.8, never a hard clip). */
+    val hybridMaxWhiteGain: Float = 1.12f,
 
     // ---- white balance ----
     /** Fraction of a warm (tungsten) illuminant that is kept, iPhone-like ambience. */
@@ -79,6 +85,11 @@ data class ProcessingProfile(
     /** Fraction of the removed luminance noise added back as fine grain (prevents the plastic look). */
     val grainRetention: Float = 0.3f,
     val chromaNrStrength: Float = 2.5f,
+    /** Sources without the ISP's chroma cleanup (NR off/minimal) show demosaic false color: random
+     *  rainbow speckle on fine bright texture (metal, chains, text). On textured pixels the
+     *  full-resolution chroma residual is dropped by this fraction in favour of the luma-guided
+     *  half-resolution chroma (the 4:2:0 resolution every JPEG already has). */
+    val falseColorSuppression: Float = 0.9f,
     /** Luma NR multiplier in good light (blends in with the scene's day factor). */
     val wellLitNrScale: Float = 0.7f,
     /** The ISP already denoised a system-rendered source: luma NR is only a light residual pass. */
@@ -91,7 +102,7 @@ data class ProcessingProfile(
     val sharpenBurst: Float = 0.38f,
     val sharpenSingleSrgb: Float = 0.24f,
     val sharpenSystemRendered: Float = 0f,
-    val sharpenHybrid: Float = 0.32f,
+    val sharpenHybrid: Float = 0.40f,
     /** Gaussian sigma (px at 12 MP) of the unsharp mask; scaled with resolution. */
     val sharpenRadius: Float = 0.9f,
     /** Absolute coring threshold (Oklab L) added to the noise-based one. */

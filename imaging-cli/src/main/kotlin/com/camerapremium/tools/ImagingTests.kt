@@ -58,6 +58,8 @@ object ImagingTests {
             "pele: suavizacao opcional preserva poros" to { skinSmoothingOptional() },
             "fusao: reduz ruido e evita fantasmas" to { burst() },
             "hibrido vs quadro unico com NR/nitidez fortes do ISP" to { hybridVsIsp() },
+            "hibrido: cor falsa (arco-iris) em textura fina" to { falseColor() },
+            "hibrido: veu cinza (pretos levantados, brancos baixos)" to { hybridLevels() },
             "desempenho 12 MP" to { perf() },
         )
         for ((name, body) in tests) {
@@ -434,6 +436,72 @@ object ImagingTests {
             val res = PhotoPipeline(pool).process(MergedYuvSource(merged), CaptureInfo(SourceKind.HYBRID, framesMerged = merged.framesMerged), prof, OutputOptions(dither = false), ArgbSink(o), merged)
             println("        diag %-14s erro %.2f energia %.2f  %s".format(name, lumaRmse(o, clean), ImageMetrics.stats(o).midBandEnergy, if (name == "sem nada") res.stats.toString() else ""))
         }
+    }
+
+    /** Mean Oklab chroma deviation from the image's mean color, and the mean chroma itself. */
+    private fun chromaStats(img: ArgbImage): DoubleArray {
+        val n = img.pixels.size
+        val a = DoubleArray(n); val b = DoubleArray(n); val lab = FloatArray(3)
+        var ma = 0.0; var mb = 0.0
+        for (i in 0 until n) {
+            val c = img.pixels[i]
+            ColorMath.linearToOklab(ColorMath.SRGB8_TO_LINEAR[(c shr 16) and 255], ColorMath.SRGB8_TO_LINEAR[(c shr 8) and 255], ColorMath.SRGB8_TO_LINEAR[c and 255], lab, 0)
+            a[i] = lab[1].toDouble(); b[i] = lab[2].toDouble(); ma += a[i]; mb += b[i]
+        }
+        ma /= n; mb /= n
+        var dev = 0.0; var chroma = 0.0
+        for (i in 0 until n) { dev += Math.hypot(a[i] - ma, b[i] - mb); chroma += Math.hypot(a[i], b[i]) }
+        return doubleArrayOf(dev / n, chroma / n)
+    }
+
+    private fun falseColor() {
+        val w = 320; val h = 240
+        // fine bright texture (brushed metal / chain) with demosaic-like random rainbow speckle
+        val clean = fabric(w, h)
+        val speckled = ArgbImage(w, h)
+        val rnd = java.util.Random(77)
+        for (i in 0 until w * h) {
+            val c = clean.pixels[i]
+            val c1 = rnd.nextGaussian() * 14; val c2 = rnd.nextGaussian() * 14
+            speckled.pixels[i] = Synthetic.rgb((((c shr 16) and 255) + c1).toInt().coerceIn(0, 255),
+                (((c shr 8) and 255) - (c1 + c2) / 2).toInt().coerceIn(0, 255), ((c and 255) + c2).toInt().coerceIn(0, 255))
+        }
+        val (out, _) = process(speckled, SourceKind.HYBRID)
+        val dIn = chromaStats(speckled)[0]; val dClean = chromaStats(clean)[0]; val dOut = chromaStats(out)[0]
+        check("arco-iris removido da textura", dOut < dClean + 0.35 * (dIn - dClean), "desvio de croma: limpo %.4f, com cor falsa %.4f, saida %.4f".format(dClean, dIn, dOut))
+        val tIn = ImageMetrics.stats(clean).midBandEnergy; val tOut = ImageMetrics.stats(out).midBandEnergy
+        check("textura de luma mantida", tOut > tIn * 0.85, "energia %.2f -> %.2f".format(tIn, tOut))
+        // real fine color detail (red/green stripes, 4 px) must keep its color
+        val stripes = ArgbImage(w, h)
+        for (y in 0 until h) for (x in 0 until w) stripes.pixels[y * w + x] = if ((x / 4) % 2 == 0) Synthetic.rgb(190, 60, 50) else Synthetic.rgb(60, 150, 70)
+        val (so, _) = process(stripes, SourceKind.HYBRID)
+        val cIn = chromaStats(stripes)[1]; val cOut = chromaStats(so)[1]
+        check("cor real em detalhe fino preservada", cOut > cIn * 0.85, "croma medio %.4f -> %.4f".format(cIn, cOut))
+        DesktopIO.write(DesktopIO.sideBySide(speckled, out), File(outDir, "teste_cor_falsa.png"))
+    }
+
+    private fun hybridLevels() {
+        // flat stream: a full tonal ramp (with some color) squeezed into sRGB 58..205
+        val src = Synthetic.naturalScene()
+        val flat = ArgbImage(src.width, src.height)
+        for (y in 0 until src.height) for (x in 0 until src.width) {
+            val t = x.toFloat() / (src.width - 1)
+            val c = src.pixels[y * src.width + x]
+            fun f(v: Int) = (58 + (0.8f * t * 255 + 0.2f * v) * (205 - 58) / 255).toInt()
+            flat.pixels[y * src.width + x] = Synthetic.rgb(f((c shr 16) and 255), f((c shr 8) and 255), f(c and 255))
+        }
+        val info = CaptureInfo(SourceKind.HYBRID, iso = 50, exposureTimeNs = 2_000_000L, aperture = 1.8f)
+        val (out, _) = process(flat, SourceKind.HYBRID, info)
+        val si = ImageMetrics.stats(flat); val so = ImageMetrics.stats(out)
+        check("pretos aprofundados", so.lPercentiles[0] < si.lPercentiles[0] - 3, "L* p1 %.1f -> %.1f".format(si.lPercentiles[0], so.lPercentiles[0]))
+        check("brancos mais limpos, sem estourar", so.lPercentiles[6] > si.lPercentiles[6] + 1.5 && so.whiteClipped < 0.005,
+            "L* p99 %.1f -> %.1f, estourado %.2f%%".format(si.lPercentiles[6], so.lPercentiles[6], so.whiteClipped * 100))
+        // a normally rendered night scene keeps its darkness
+        val nightInfo = CaptureInfo(SourceKind.HYBRID, iso = 3200, exposureTimeNs = 100_000_000L, aperture = 1.8f)
+        val (n2, _) = process(src, SourceKind.HYBRID, nightInfo)
+        val ns = ImageMetrics.stats(src); val no = ImageMetrics.stats(n2)
+        check("cena noturna ja contrastada quase inalterada", Math.abs(no.meanLab[0] - ns.meanLab[0]) < 4, "L* medio %.1f -> %.1f".format(ns.meanLab[0], no.meanLab[0]))
+        DesktopIO.write(DesktopIO.sideBySide(flat, out), File(outDir, "teste_veu_hibrido.png"))
     }
 
     private fun burst() {

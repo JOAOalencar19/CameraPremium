@@ -138,6 +138,7 @@ class TileRenderer(
         Filters.guidedCoefficients(ws.hL, ws.hB, hw, hh, 4, epsL, ws.hc1, ws.hc2, ws.gwsHalf)
         Filters.applyCoefficients(ws.hL, ws.hc1, ws.hc2, ws.hB2, hn)
         val cs = profile.chromaNrStrength * (if (rendered) 0.6f else 1f)
+        val fcs = if (rendered) 0f else profile.falseColorSuppression
         for (yy in 0 until ph) {
             val fy = (yy - 0.5f) * 0.5f
             for (xx in 0 until pw) {
@@ -149,7 +150,11 @@ class TileRenderer(
                 val thr = cs * skinBoost * nm.chromaSigma(ws.ld[i]) * ws.nf[i] + 1e-5f
                 val da = ws.okA[i] - af; val db = ws.okB[i] - bf
                 val mag = sqrt(da * da + db * db)
-                val keep = Filters.smoothstep(thr, 2f * thr, mag)
+                // texture confidence from the luma filter: false color lives on fine luma texture
+                // on near-neutral surfaces (metal, text, chains), where a rainbow is most visible.
+                // Saturated fine detail (colored fabric) keeps its full-resolution chroma.
+                val neutral = 1f - Filters.smoothstep(0.03f, 0.08f, sqrt(af * af + bf * bf))
+                val keep = Filters.smoothstep(thr, 2f * thr, mag) * (1f - fcs * neutral * ws.ca[i].coerceIn(0f, 1f))
                 ws.okA[i] = af + keep * da
                 ws.okB[i] = bf + keep * db
             }

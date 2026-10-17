@@ -16,6 +16,9 @@ class ToneCurve(
     val shoulderStart: Float,
     val whiteStops: Float,
     val flare: Float,
+    /** Display-linear gain after the black flare (white-point stretch), with a soft knee so the
+     *  stretched highlights roll into white instead of clipping. 1 = none. */
+    val gain: Float = 1f,
 ) {
     private val vMax = (Math.log(1.0 / MID) / Math.log(2.0)).toFloat()
     private val dWhite = rawDisplay(whiteStops)
@@ -43,7 +46,10 @@ class ToneCurve(
 
     private fun finish(d: Float): Float {
         val n = d / dWhite
-        return ((n - flare) / (1f - flare)).coerceAtLeast(0f)
+        val f = ((n - flare) / (1f - flare)).coerceAtLeast(0f)
+        if (gain == 1f) return f
+        val g = f * gain
+        return if (g <= KNEE) g else KNEE + (1f - KNEE) * kotlin.math.tanh((g - KNEE) / (1f - KNEE))
     }
 
     /** Display-linear value (0..~1, >1 only for out-of-range) for log2 scene luminance. */
@@ -68,8 +74,13 @@ class ToneCurve(
         const val LUT_SIZE = 4096
         const val SCALE = LUT_SIZE / (MAX_LOG2 - MIN_LOG2)
 
+        private const val KNEE = 0.8f
+
         /** Near-identity curve for already-rendered (system) images. */
         fun identity(): ToneCurve = ToneCurve(1f, 10f, LOG2_ONE_OVER_MID, 0f)
+
+        /** Identity tones with a black-point (flare) and white-point (gain) correction only. */
+        fun levels(flare: Float, gain: Float): ToneCurve = ToneCurve(1f, 10f, LOG2_ONE_OVER_MID, flare, gain)
 
         private val LOG2_ONE_OVER_MID = (Math.log(1.0 / MID) / Math.log(2.0)).toFloat()
     }

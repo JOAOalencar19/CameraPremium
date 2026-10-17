@@ -187,8 +187,11 @@ object SceneAnalyzer {
         var cLo = if (ds > profile.shadowRangeStops) (profile.shadowRangeStops / ds).coerceIn(minLo, 1f) else 1f
         cLo = Filters.lerp(cLo, 1f, night) // night scenes keep their darkness
 
-        val curve = if (rendered) ToneCurve.identity() else
-            ToneCurve(profile.contrast, profile.shoulderStartStops, 3.2f, profile.blackFlare)
+        val curve = when {
+            info.sourceKind == SourceKind.HYBRID -> hybridLevels(lg2, clippedFraction, night, profile)
+            rendered -> ToneCurve.identity()
+            else -> ToneCurve(profile.contrast, profile.shoulderStartStops, 3.2f, profile.blackFlare)
+        }
 
         // ---- 8. exposure: find E so that the key lands on the target through the curve
         var exposure = 0f
@@ -203,7 +206,8 @@ object SceneAnalyzer {
             // a rendered image was already exposed by the camera: nudge only when clearly off
             val cur = curve.display(key)
             val need = FastMath.log2(target / max(cur, 1e-4f))
-            exposure = (need * 0.4f).coerceIn(-0.3f, 0.3f)
+            // never darken a bright scene the camera exposed on purpose (that reads as dull)
+            exposure = (need * 0.4f).coerceIn(-0.1f, 0.3f)
         }
 
         // ---- 9. per-cell tone offset and its guided-upsampling coefficients
@@ -227,5 +231,22 @@ object SceneAnalyzer {
             exposureEv = exposure, targetKey = target, clippedFraction = clippedFraction, faces = faces.size,
         )
         return RenderPlan(w, h, m, gw, gh, scale, toneA, toneB, curve, skinPrior, sharpen, micro, stats, wb, info.sourceKind, detailScale)
+    }
+
+    /**
+     * The YUV stream a third-party app receives is flatter than the manufacturer's own JPEG
+     * (lifted blacks, whites well below 255: a gray veil). Pull the black point down and stretch
+     * the white point a little; both only partially and with limits, and night scenes keep their
+     * darkness.
+     */
+    private fun hybridLevels(lg2: FloatArray, clipped: Float, night: Float, profile: ProcessingProfile): ToneCurve {
+        val s = lg2.copyOf(); s.sort()
+        val n = s.size
+        val black = Math.pow(2.0, s[(n * 0.005f).toInt().coerceIn(0, n - 1)].toDouble()).toFloat()
+        val white = Math.pow(2.0, s[(n * 0.995f).toInt().coerceIn(0, n - 1)].toDouble()).toFloat()
+        val flare = (profile.hybridBlackPull * (black - 0.004f)).coerceIn(0f, 0.02f)
+        var gain = if (clipped > 0.01f) 1f else (profile.hybridWhiteTarget / white.coerceAtLeast(1e-3f)).coerceIn(1f, profile.hybridMaxWhiteGain)
+        gain = Filters.lerp(gain, 1f, night)
+        return ToneCurve.levels(flare, gain)
     }
 }

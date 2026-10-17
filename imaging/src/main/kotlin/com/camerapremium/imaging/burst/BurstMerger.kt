@@ -104,7 +104,11 @@ class BurstMerger(
 
     // ------------------------------------------------------------------------------------
 
-    /** sigma per bin from the median absolute difference of 2x2 block means (robust to motion). */
+    /**
+     * sigma per bin from the lower quartile of |difference| of 2x2 block means. Handheld subpixel
+     * misalignment on texture (skin, fabric) only *adds* to the differences, so a low quantile is
+     * far less biased than the median when most of the frame is textured (close-ups).
+     */
     private fun temporalSigma(): FloatArray? {
         if (merged < 2) return null
         val out = FloatArray(MergedYuv.TEMPORAL_BINS) { -1f }
@@ -112,11 +116,15 @@ class BurstMerger(
             val hst = diffHist[b]
             val total = hst.sum()
             if (total < 200) continue
-            var acc = 0; var med = 0
-            for (i in hst.indices) { acc += hst[i]; if (acc * 2 >= total) { med = i; break } }
-            val mad = (med + 0.5f) / 4f
-            // block-mean difference sigma = sigma * sqrt(2) / 2 ; median|N(0,s)| = 0.6745 s
-            out[b] = mad / 0.6745f / 0.7071f
+            // interpolated inside the bucket: at low ISO the quartile falls in the first buckets
+            var acc = 0; var q = 0f
+            for (i in hst.indices) {
+                if ((acc + hst[i]) * 4 >= total) { q = i + (total / 4f - acc) / hst[i].coerceAtLeast(1); break }
+                acc += hst[i]
+            }
+            val q25 = q / 4f
+            // block-mean difference sigma = sigma * sqrt(2) / 2 ; 25th percentile of |N(0,s)| = 0.3186 s
+            out[b] = q25 / 0.3186f / 0.7071f
         }
         if (out.all { it < 0f }) return null
         NoiseTable.fillMissing(out, 1.5f)

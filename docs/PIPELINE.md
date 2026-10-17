@@ -166,3 +166,55 @@ Lightroom são *parâmetros* para pipelines de terceiros (as bibliotecas fechada
 Google, o motor do Adobe Camera Raw). Não contêm algoritmos e não podem ser carregados neste app.
 O equivalente aqui é o `ProcessingProfile` — todos os parâmetros num único lugar, ajustáveis por
 medição (veja o protocolo de comparação com iPhone).
+
+## 7. Revisão 0.3.1 — análise de 12 fotos reais (Original × Natural Premium)
+
+Todas as 12 fotos enviadas são do app no SM-S948B (EXIF `Software`): 6 "Original (sistema)" (o
+JPEG do HAL, com EXIF completo da Samsung) e 6 "Natural Premium" (fonte Híbrida). Cinco cenas
+formam pares (cabelo/tatuagem, relógio, rosto, espetinho, cozinheiro); fotos de dia, ISO 20–120.
+
+Medições (cortes 100%, luminância sRGB):
+
+| cena | energia de detalhe (Laplaciano) Original → NP | p1 / p99 Original → NP |
+|---|---|---|
+| cabelo | 5,8 → 3,0 | 10 / 234 → 13 / 209 |
+| relógio | 14,3 → 6,3 | 9 / 186 → 11 / 204 |
+| rosto | 3,0 → 3,1 | 29 / 222 → 28 / 217 |
+| espetinho | 8,6 → 3,9 | 41 / 250 → 63 / 237 |
+| cozinheiro | 5,8 → 2,4 | 31 / 247 → 32 / 233 |
+
+**Diagnóstico** (a partir dos cortes, não de suposições):
+1. **Cor falsa "arco-íris"** na grelha, corrente, toalha, letras do relógio e barba no NP. É o
+   artefato de demosaico que o ISP normalmente limpa; com NR `MINIMAL` ele chega ao app, e a NR de
+   croma *preservava* desvios grandes de cor (tratados como borda real).
+2. **Perda de textura fina** (pele da mão, pescoço). As bordas fortes (letras do relógio) estão
+   nítidas, então **não** é desfoque da fusão: é NR de luma. A estimativa temporal de ruído usava
+   a mediana das diferenças entre quadros; em close-ups quase todo bloco é textura, e o
+   desalinhamento subpixel da mão soma diferença → ruído superestimado → NR forte.
+3. **Véu cinza**: o fluxo YUV entregue a apps de terceiros é mais plano que o JPEG da Samsung
+   (pretos levantados no espetinho, brancos baixos no cabelo/cozinheiro). Além disso, o ajuste de
+   exposição podia *escurecer* cenas claras em até 0,3 EV.
+
+Observação honesta: o Original do HAL tem nitidez exagerada ("crocante", com halos); a meta não é
+igualar a energia de detalhe dele, e sim recuperar a textura real sem artefatos.
+
+**Mudanças:**
+- **Supressão de cor falsa** (`falseColorSuppression` 0,9): em pixels de textura fina (confiança
+  do filtro de luma) e superfícies quase neutras, o resíduo de croma em resolução cheia é trocado
+  pela croma guiada pela luma em meia resolução (a resolução 4:2:0 de qualquer JPEG). Detalhe
+  colorido saturado (tecido listrado) mantém a croma.
+- **Ruído temporal pelo quartil inferior** (interpolado no histograma) em vez da mediana:
+  textura/desalinhamento só aumentam diferenças, então o quartil inferior quase não é afetado.
+- **Níveis da fonte Híbrida**: ponto preto puxado (50% do excesso, máx. 0,02 linear) e ponto
+  branco esticado até p99,5 ≈ 0,82 linear (ganho máx. 1,12, joelho suave acima de 0,8 — nunca
+  clip). Cenas noturnas mantêm o escuro; com >1% de pixels estourados não há ganho.
+- Ajuste de exposição sobre fonte já exposta pelo ISP: no máximo −0,1 EV (antes −0,3).
+- Nitidez Híbrida 0,32 → 0,40 (o quadro chega com nitidez do ISP desligada).
+
+**Testes novos:** cor falsa (desvio de croma 0,0368 → 0,0021, limpo 0,0010; textura de luma
+85%; listras coloridas de 4 px mantêm 99% da croma) e véu (L\* p1 30,4 → 26,2; p99 76,0 → 77,7;
+0% estourado; cena noturna quase inalterada). No teste de tecido com verdade conhecida o erro do
+Híbrido hoje é 2,24 (ISP 2,95) — o valor 1,85 citado na seção 6 não se reproduz com o código
+atual nem com o estimador antigo (2,26).
+
+**Não verificado:** o efeito real no aparelho. Repita os mesmos pares de cena com a v0.3.1.
