@@ -9,7 +9,7 @@
 | Paleta monocromática da UI | ✅ verificada no build (`tools/check-palette.py`) |
 | Somente API pública do Android | ✅ verificada no build contra API 35/36/main (`tools/check-public-api.py`) |
 | Bytecode compatível com ART sem desugaring | ✅ verificado (0 `invokedynamic` no app; 63 métodos do stdlib usados, nenhum com `invokedynamic`) |
-| Pipeline fotográfico (JVM) | ✅ 57/57 verificações objetivas (v0.3.1) |
+| Pipeline fotográfico (JVM) | ✅ 58/58 verificações objetivas (v0.3.2) |
 | Fotos reais de amostra (JPEG públicos) | ✅ inspeção visual; um defeito encontrado e corrigido (ver abaixo) |
 | Build Gradle/AGP | ⚠️ **não executado aqui** (repositórios Google bloqueados). Arquivos escritos para AGP 8.13 + Kotlin 2.2.21 |
 | Instalação, abertura, câmeras, captura, salvamento | ❌ **não testados** — nenhum aparelho conectado neste ambiente |
@@ -108,3 +108,11 @@ hibrido: veu cinza                    L* p1 30.4 -> 26.2; p99 76.0 -> 77.7; 0% e
 ```
 Fotos reais analisadas: 5 pares Original (HAL) x Natural Premium, ver `PIPELINE.md` §7. O efeito
 das correções **no aparelho ainda não foi verificado**.
+
+## v0.3.2
+```
+hibrido: pontos coloridos em sombra   desvio de croma 0.0044 -> 0.0024
+tons de pele (fonte do sistema)       dL* max 3.7 -> 0.0 (exposicao do ISP confiada)
+hibrido vs ISP (tecido)               erro L* 2.24 -> 1.52 (ISP 2.95)
+```
+Ver `PIPELINE.md` §8. Efeito no aparelho **não verificado**.

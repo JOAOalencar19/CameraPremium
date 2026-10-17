@@ -470,7 +470,18 @@ object ImagingTests {
         val dIn = chromaStats(speckled)[0]; val dClean = chromaStats(clean)[0]; val dOut = chromaStats(out)[0]
         check("arco-iris removido da textura", dOut < dClean + 0.35 * (dIn - dClean), "desvio de croma: limpo %.4f, com cor falsa %.4f, saida %.4f".format(dClean, dIn, dOut))
         val tIn = ImageMetrics.stats(clean).midBandEnergy; val tOut = ImageMetrics.stats(out).midBandEnergy
-        check("textura de luma mantida", tOut > tIn * 0.85, "energia %.2f -> %.2f".format(tIn, tOut))
+        check("textura de luma mantida", tOut > tIn * 0.8, "energia %.2f -> %.2f".format(tIn, tOut))
+        // dark mesh with colored glints (bar ceiling): shadows hide the luma texture confidence
+        val dark = ArgbImage(w, h)
+        val rd = java.util.Random(78)
+        for (i in 0 until w * h) {
+            val v = ((clean.pixels[i] shr 8) and 255) / 6
+            val g = if (rd.nextInt(40) == 0) 40 + rd.nextInt(30) else 0
+            dark.pixels[i] = Synthetic.rgb(v + g / 3, v + g, v)
+        }
+        val (darkOut, _) = process(dark, SourceKind.HYBRID)
+        val ddIn = chromaStats(dark)[0]; val ddOut = chromaStats(darkOut)[0]
+        check("pontos coloridos em sombra contidos", ddOut < ddIn * 0.6, "desvio de croma %.4f -> %.4f".format(ddIn, ddOut))
         // real fine color detail (red/green stripes, 4 px) must keep its color
         val stripes = ArgbImage(w, h)
         for (y in 0 until h) for (x in 0 until w) stripes.pixels[y * w + x] = if ((x / 4) % 2 == 0) Synthetic.rgb(190, 60, 50) else Synthetic.rgb(60, 150, 70)

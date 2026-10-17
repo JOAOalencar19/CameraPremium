@@ -48,6 +48,9 @@ data class ProcessingProfile(
     val warmRetention: Float = 0.26f,
     /** Fraction of a very cool (shade/overcast) illuminant that is kept. */
     val coolRetention: Float = 0.10f,
+    /** Scale of the ambience retention when the HAL's color is kept (system/hybrid): its own AWB
+     *  already keeps some warmth, and adding ours on top made skin orange in real S26 shots. */
+    val halToneAmbienceScale: Float = 0.4f,
     /** Fraction of a residual green/magenta or color cast that is removed. */
     val castCorrection: Float = 0.5f,
 

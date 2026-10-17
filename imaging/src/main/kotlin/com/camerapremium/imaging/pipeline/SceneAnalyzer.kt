@@ -182,7 +182,11 @@ object SceneAnalyzer {
         val minHi = if (rendered) max(0.85f, profile.minHighlightCompression) else profile.minHighlightCompression
         val minLo = if (rendered) max(0.92f, profile.minShadowCompression) else profile.minShadowCompression
         val dh = p995 - key
-        val cHi = if (dh > profile.highlightHeadroomStops) (profile.highlightHeadroomStops / dh).coerceIn(minHi, 1f) else 1f
+        // The HAL already rolled its highlights into white; compressing them again only made light
+        // skin and white surfaces dull (seen in real S26 shots). Only a rendered image with real
+        // clipping gets the (mild) compression.
+        val cHi = if (rendered && clippedFraction < 0.002f) 1f
+            else if (dh > profile.highlightHeadroomStops) (profile.highlightHeadroomStops / dh).coerceIn(minHi, 1f) else 1f
         val ds = key - p1
         var cLo = if (ds > profile.shadowRangeStops) (profile.shadowRangeStops / ds).coerceIn(minLo, 1f) else 1f
         cLo = Filters.lerp(cLo, 1f, night) // night scenes keep their darkness
@@ -206,8 +210,9 @@ object SceneAnalyzer {
             // a rendered image was already exposed by the camera: nudge only when clearly off
             val cur = curve.display(key)
             val need = FastMath.log2(target / max(cur, 1e-4f))
-            // never darken a bright scene the camera exposed on purpose (that reads as dull)
-            exposure = (need * 0.4f).coerceIn(-0.1f, 0.3f)
+            // The camera's exposure is trusted: no darkening (reads as dull) and a lift only when
+            // the key is clearly more than 1 EV under target (dim interiors, night).
+            exposure = ((need - 1f) * 0.4f).coerceIn(0f, 0.3f)
         }
 
         // ---- 9. per-cell tone offset and its guided-upsampling coefficients

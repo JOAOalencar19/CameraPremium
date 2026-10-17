@@ -218,3 +218,43 @@ Híbrido hoje é 2,24 (ISP 2,95) — o valor 1,85 citado na seção 6 não se re
 atual nem com o estimador antigo (2,26).
 
 **Não verificado:** o efeito real no aparelho. Repita os mesmos pares de cena com a v0.3.1.
+
+## 8. Revisão 0.3.2 — fotos reais com a v0.3.1 (e câmera nativa)
+
+Sete fotos de 17/10, 13:26–13:37, já com a v0.3.1. Pelo EXIF: dois pares Original × NP
+(frontal e principal 4:3), uma selfie NP, e **duas fotos da câmera nativa da Samsung**
+(`Software` = firmware): uma selfie e uma foto de copos (ISO 1000).
+
+| | detalhe (Laplaciano) | p1 / p50 / p99 | R/G médio |
+|---|---|---|---|
+| frontal Original → NP | 6,4 → 6,7 | 17/89/214 → 20/98/208 | 1,22 → 1,23 |
+| principal Original → NP | 11,0 → 6,7 | 2/46/244 → 5/56/222 | 1,13 → 1,16 |
+| selfie nativa × selfie NP | 3,8 × 6,0 | 15/79/205 × 12/94/205 | 1,20 × 1,27 |
+
+**O que melhorou com a v0.3.1:** frontal com detalhe igual ao do sistema sem o aspecto
+"crocante"; cabelo cacheado com fios naturais (o Original tem halos); o arco-íris em textura
+clara sumiu.
+
+**O que ainda estava errado:**
+1. Pontos verdes/amarelos na tela metálica escura do teto (cor falsa em *sombra*: ali a textura de
+   luma fica abaixo do limiar de confiança, então a supressão da v0.3.1 não atuava).
+2. Pele mais laranja e mais clara que no Original e na câmera nativa. Duas causas no código:
+   - a retenção de ambiente (calor da luz) era somada à do próprio AWB do ISP, que já mantém calor;
+   - o ajuste de exposição sobre imagem já exposta pelo ISP levantava até +0,3 EV, e os realces
+     eram comprimidos de novo (o ISP já os comprimiu), o que escurecia peles claras e as fazia
+     depender desse levantamento.
+
+**Mudanças:**
+- Supressão de cor falsa também em sombras neutras (L Oklab < ~0,35).
+- Fonte com cor do ISP (sistema/Híbrida): retenção de ambiente × 0,4 (`halToneAmbienceScale`).
+- Exposição do ISP confiada: sem escurecer, e levanta só quando a cena está > 1 EV abaixo da meta
+  (máx. +0,3 EV). Sem segunda compressão de realces, exceto com recorte real (> 0,2% dos pixels).
+
+**Testes:** 58/58. Tons de pele (fonte do sistema): dL\* máx. 3,7 → 0,0. Tecido com verdade
+conhecida: erro do Híbrido 2,24 → **1,52** (ISP 2,95); a diferença era quase toda o
+levantamento de exposição. Pontos coloridos em sombra: desvio de croma 0,0044 → 0,0024. Dois
+limiares dos testes criados na v0.3.1 foram afrouxados com a exposição mais baixa: energia de
+luma ≥ 80% (era 85%; resultado 84%) e cor em sombra < 60% (resultado 55%).
+
+**Ainda sem verificação no aparelho.** A selfie NP tem mais detalhe que a nativa (6,0 × 3,8), mas
+"mais detalhe" não é por si melhor: a nativa suaviza pele de propósito.

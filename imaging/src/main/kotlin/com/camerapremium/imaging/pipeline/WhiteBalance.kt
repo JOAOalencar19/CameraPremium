@@ -116,6 +116,7 @@ object WhiteBalance {
         var render: Float? = null
         if (est != null) {
             var rc = renderCct(est, profile)
+            if (info.sourceKind.halTone) rc = 1e6f / (1e6f / 6504f + profile.halToneAmbienceScale * (1e6f / rc - 1e6f / 6504f))
             val prev = info.previousWhite
             if (prev != null && prev.lensKey == info.lens.key && info.timestampMs - prev.timestampMs < 20_000L) {
                 val dm = abs(1e6f / rc - 1e6f / prev.renderCct)
