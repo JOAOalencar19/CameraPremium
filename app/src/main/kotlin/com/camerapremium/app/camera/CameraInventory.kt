@@ -333,6 +333,15 @@ class CameraInventory(private val manager: CameraManager) {
                 append("  JPEG_R (Ultra HDR do HAL)=${jr ?: "nao"}\n")
             }
         }
+        append("\nExtensoes Camera2 (processamento do fabricante):\n")
+        for (l in lenses.values) for (e in l.extensions) {
+            try {
+                val ch = manager.getCameraExtensionCharacteristics(l.id)
+                val jp = ch.getExtensionSupportedSizes(e, ImageFormat.JPEG).maxByOrNull { it.width.toLong() * it.height }
+                val keys = if (Build.VERSION.SDK_INT >= 33) ch.getAvailableCaptureRequestKeys(e).joinToString { it.name.substringAfterLast('.') } else "?"
+                append("  [${l.id}] ${extName(e)}: JPEG max=$jp chaves=$keys\n")
+            } catch (t: Throwable) { append("  [${l.id}] ${extName(e)}: erro ${t.message}\n") }
+        }
         append("\nParadas de zoom traseiras:\n")
         for (s in rearStops) append("  ${s.label}x -> camera ${s.cameraId} ratio %.2f ${if (s.native) "(lente nativa)" else "(recorte)"} ${s.lensLabel}\n".format(s.ratioOnCamera))
         append("Zoom maximo por gesto: %.1fx\n".format(rearMaxFactor()))

@@ -9,7 +9,7 @@
 | Paleta monocromática da UI | ✅ verificada no build (`tools/check-palette.py`) |
 | Somente API pública do Android | ✅ verificada no build contra API 35/36/main (`tools/check-public-api.py`) |
 | Bytecode compatível com ART sem desugaring | ✅ verificado (0 `invokedynamic` no app; 63 métodos do stdlib usados, nenhum com `invokedynamic`) |
-| Pipeline fotográfico (JVM) | ✅ 48/48 verificações objetivas (v0.2.0) |
+| Pipeline fotográfico (JVM) | ✅ 51/51 verificações objetivas (v0.3.0) |
 | Fotos reais de amostra (JPEG públicos) | ✅ inspeção visual; um defeito encontrado e corrigido (ver abaixo) |
 | Build Gradle/AGP | ⚠️ **não executado aqui** (repositórios Google bloqueados). Arquivos escritos para AGP 8.13 + Kotlin 2.2.21 |
 | Instalação, abertura, câmeras, captura, salvamento | ❌ **não testados** — nenhum aparelho conectado neste ambiente |

@@ -8,6 +8,14 @@ enum class SourceKind {
     SINGLE_SRGB_CURVE,
     /** Already tone-mapped and sharpened by the camera HAL (system JPEG / default YUV). Light touch only. */
     SYSTEM_RENDERED,
+    /** HAL tone curve and color kept, but its spatial NR minimized and sharpening off, then a
+     *  multi-frame merge: our NR/sharpening apply fully, tone mapping stays light. */
+    HYBRID;
+
+    /** The tone curve came from the HAL (no full re-rendering of tones). */
+    val halTone: Boolean get() = this == SYSTEM_RENDERED || this == HYBRID
+    /** The HAL already applied its own (strong) spatial noise reduction and sharpening. */
+    val ispDenoised: Boolean get() = this == SYSTEM_RENDERED
 }
 
 /** Face rectangle in normalized source coordinates (0..1), before any rotation. */

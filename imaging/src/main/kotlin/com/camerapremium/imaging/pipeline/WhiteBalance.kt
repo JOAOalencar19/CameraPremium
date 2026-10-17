@@ -97,7 +97,7 @@ object WhiteBalance {
         var m = ColorMath.identity3x3()
         var castCorrected = false
         val strength = when (info.sourceKind) {
-            SourceKind.SYSTEM_RENDERED -> profile.castCorrection * 0.5f
+            SourceKind.SYSTEM_RENDERED, SourceKind.HYBRID -> profile.castCorrection * 0.5f
             else -> profile.castCorrection
         }
         // Only correct clear tints; a scene can legitimately contain many warm-gray objects, so we

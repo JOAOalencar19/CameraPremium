@@ -102,7 +102,26 @@ class MergedYuv(
     val effectiveFrames: FloatArray,
     val framesMerged: Int,
     val framesRejected: Int,
+    /**
+     * Per-frame luma noise sigma (8-bit code values) per brightness bin, measured *temporally*
+     * from differences between aligned frames. Texture is identical in every frame and cancels
+     * out, so unlike a spatial estimate this cannot mistake fine fabric/hair for noise.
+     */
+    val temporalSigma: FloatArray? = null,
 ) {
+    companion object { const val TEMPORAL_BINS = 8 }
+
+    /** Expected residual luma sigma (8-bit) after the merge, for a brightness level 0..255. */
+    fun residualSigma(level: Float): Float? {
+        val t = temporalSigma ?: return null
+        val f = (level / 256f * TEMPORAL_BINS - 0.5f).coerceIn(0f, (TEMPORAL_BINS - 1).toFloat())
+        val i = f.toInt(); val j = (i + 1).coerceAtMost(TEMPORAL_BINS - 1)
+        val s = t[i] + (t[j] - t[i]) * (f - i)
+        val sorted = effectiveFrames.copyOf(); sorted.sort()
+        val n = sorted[sorted.size / 2].coerceAtLeast(1f)
+        return s / kotlin.math.sqrt(n)
+    }
+
     val chromaWidth get() = (width + 1) / 2
     val chromaHeight get() = (height + 1) / 2
     val mapWidth get() = (width + 7) / 8

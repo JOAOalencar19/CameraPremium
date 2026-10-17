@@ -19,7 +19,7 @@ import kotlin.system.exitProcess
 /**
  * Desktop tool for developing and validating the pipeline without a phone.
  *
- *   process <in> <out> [--kind system|single|burst] [--iso N --exp-ms T --f N] [--p3] [--side-by-side file]
+ *   process <in> <out> [--kind system|single|burst|hybrid] [--iso N --exp-ms T --f N] [--p3] [--side-by-side file]
  *   burst <out> <frame1> <frame2> ...   merge real JPEG/PNG frames of a handheld burst, then process
  *   compare <a> <b> [--roiA x,y,w,h] [--roiB x,y,w,h]   objective comparison (e.g. Galaxy vs iPhone)
  *   synth <dir>                          write the synthetic validation scenes
@@ -42,7 +42,7 @@ private fun usage() {
     println(
         """
         uso:
-          process <entrada> <saida> [--kind system|single|burst] [--iso N] [--exp-ms T] [--f N] [--p3] [--side-by-side arquivo]
+          process <entrada> <saida> [--kind system|single|burst|hybrid] [--iso N] [--exp-ms T] [--f N] [--p3] [--side-by-side arquivo]
           burst <saida> <quadro1> <quadro2> ...
           compare <a> <b> [--roiA x,y,w,h] [--roiB x,y,w,h]
           synth <pasta>
@@ -83,6 +83,7 @@ private fun infoFrom(o: Options, kind: SourceKind, frames: Int = 1) = CaptureInf
 private fun kindOf(s: String?) = when (s) {
     "single" -> SourceKind.SINGLE_SRGB_CURVE
     "burst" -> SourceKind.BURST_MERGED
+    "hybrid" -> SourceKind.HYBRID
     else -> SourceKind.SYSTEM_RENDERED
 }
 

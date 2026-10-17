@@ -50,6 +50,30 @@ class PhotoPipeline(private val pool: WorkerPool) {
     /** Frees the per-thread scratch buffers (~7 MB per worker). */
     fun releaseBuffers() { for (i in workspaces.indices) workspaces[i] = null }
 
+    /**
+     * With a burst we know the true residual noise (temporal estimate): cap the spatial model with
+     * it, so fine fabric/hair texture that merely *looks* like noise is not smoothed away.
+     */
+    private fun capWithTemporal(m: NoiseModel, merged: MergedYuv, kind: SourceKind): NoiseModel {
+        val bins = NoiseModel.BINS
+        val l = FloatArray(bins); val c = FloatArray(bins)
+        for (i in 0 until bins) {
+            val lc = ((i + 0.5f) / bins).coerceIn(0.05f, 0.98f)
+            val d = 0.02f
+            fun enc(x: Float) = com.camerapremium.imaging.color.ColorMath.encode((x * x * x).coerceIn(0f, 1f)) * 255f
+            val slope = (enc(lc + d) - enc(lc - d)) / (2f * d) // code values per unit of Oklab L
+            val level = enc(lc)
+            val res = merged.residualSigma(level) ?: return m
+            // our own tone curve can lift shadows: allow some headroom when we re-render tones
+            val headroom = if (kind.halTone) 1.0f else 1.6f
+            val cap = (res / slope.coerceAtLeast(1f)) * headroom + 0.0015f
+            l[i] = minOf(m.sigmaL[i], cap)
+            val ratio = if (m.sigmaL[i] > 1e-6f) l[i] / m.sigmaL[i] else 1f
+            c[i] = m.sigmaC[i] * (0.5f + 0.5f * ratio)
+        }
+        return NoiseModel(l, c, temporal = true)
+    }
+
     fun process(
         src: SourceImage,
         info: CaptureInfo,
@@ -98,7 +122,8 @@ class PhotoPipeline(private val pool: WorkerPool) {
                 builder.addPatch(pl, pa, pb, p)
             }
         })
-        val noise = builder.build()
+        var noise = builder.build()
+        if (merged != null && merged.temporalSigma != null) noise = capWithTemporal(noise, merged, info.sourceKind)
         renderer.noise = noise
         lap("noise_model")
 

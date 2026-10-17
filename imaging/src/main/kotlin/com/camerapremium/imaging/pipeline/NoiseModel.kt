@@ -8,7 +8,12 @@ import kotlin.math.sqrt
  * and whatever denoising the camera did, so the same code adapts to a clean system JPEG (little
  * NR applied) and to a noisy single frame (more NR).
  */
-class NoiseModel(val sigmaL: FloatArray, val sigmaC: FloatArray) {
+class NoiseModel(
+    val sigmaL: FloatArray,
+    val sigmaC: FloatArray,
+    /** True when the levels come from a temporal (multi-frame) measurement: no safety margin needed. */
+    val temporal: Boolean = false,
+) {
 
     fun lumaSigma(l: Float): Float = interp(sigmaL, l)
     fun chromaSigma(l: Float): Float = interp(sigmaC, l)

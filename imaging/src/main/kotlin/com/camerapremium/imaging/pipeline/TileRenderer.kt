@@ -105,9 +105,9 @@ class TileRenderer(
 
         // ---- luma NR: self-guided filter with signal-dependent regularization
         // A system-rendered source was already denoised by the camera: only a light touch here.
-        val rendered = plan.sourceKind == SourceKind.SYSTEM_RENDERED
+        val rendered = plan.sourceKind.ispDenoised
         val wellLit = Filters.lerp(1f, profile.wellLitNrScale, plan.stats.dayFactor)
-        val k = profile.lumaNrStrength * lensNoiseScale * wellLit * (if (rendered) profile.renderedLumaNrScale else 1f)
+        val k = (if (nm.temporal) profile.lumaNrStrengthTemporal else profile.lumaNrStrength) * lensNoiseScale * wellLit * (if (rendered) profile.renderedLumaNrScale else 1f)
         val eps = object : EpsModel {
             override fun eps(meanGuide: Float, index: Int): Float {
                 val s = nm.lumaSigma(meanGuide) * ws.nf[index] * k

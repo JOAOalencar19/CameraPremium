@@ -33,6 +33,8 @@ class BurstPlan(
     val noiseReductionMode: Int,
     val edgeOff: Boolean,
     val reason: String,
+    /** Keep the HAL tone curve/color but minimize its spatial NR and turn its sharpening off. */
+    val hybrid: Boolean = false,
 ) {
     override fun toString() = "frames=$frames exp=${exposureNs?.let { "%.1fms".format(it / 1e6) }} iso=$iso ev=%.2f nr=$noiseReductionMode edgeOff=$edgeOff ($reason)".format(evBias)
 }
@@ -53,11 +55,40 @@ object CapturePlanner {
         multiFrame: Boolean,
         native: Boolean = true,
         thermalThrottle: Boolean = false,
+        hybrid: Boolean = false,
     ): BurstPlan {
-        val p = planInternal(lens, mode, aeExposureNs, aeIso, hint, multiFrame, native)
+        val p = if (hybrid && multiFrame && lens.burstCapable) planHybrid(lens, mode, aeExposureNs, aeIso)
+        else planInternal(lens, mode, aeExposureNs, aeIso, hint, multiFrame, native)
         if (!thermalThrottle || p.frames <= 3) return p
         // device is hot: fewer frames (never lower resolution)
-        return BurstPlan(3, p.exposureNs, p.iso, p.frameDurationNs, p.evBias, p.noiseReductionMode, p.edgeOff, p.reason + ", termico: 3 quadros")
+        return BurstPlan(3, p.exposureNs, p.iso, p.frameDurationNs, p.evBias, p.noiseReductionMode, p.edgeOff, p.reason + ", termico: 3 quadros", p.hybrid)
+    }
+
+    /**
+     * Hybrid: the HAL's tone curve and color science are kept (they are good), but its spatial
+     * noise reduction is minimized and its sharpening turned off, because on single frames those
+     * produce the "watercolor" texture and the halos. Noise is removed by merging frames instead,
+     * which averages real noise without inventing texture.
+     */
+    private fun planHybrid(lens: LensInfo, mode: CaptureMode, aeExposureNs: Long, aeIso: Int): BurstPlan {
+        val nr = when {
+            CameraMetadata.NOISE_REDUCTION_MODE_MINIMAL in lens.nrModes -> CameraMetadata.NOISE_REDUCTION_MODE_MINIMAL
+            CameraMetadata.NOISE_REDUCTION_MODE_FAST in lens.nrModes -> CameraMetadata.NOISE_REDUCTION_MODE_FAST
+            else -> CameraMetadata.NOISE_REDUCTION_MODE_HIGH_QUALITY
+        }
+        val edgeOff = CameraMetadata.EDGE_MODE_OFF in lens.edgeModes
+        var n = when {
+            aeIso <= 0 -> 6
+            aeIso <= 100 -> 5
+            aeIso <= 400 -> 7
+            aeIso <= 1600 -> 9
+            else -> 10
+        }
+        if (mode == CaptureMode.NIGHT) n = maxOf(n, 12)
+        val per = maxOf(aeExposureNs, 33_000_000L)
+        val budget = if (mode == CaptureMode.NIGHT) 3_000_000_000L else 1_000_000_000L
+        n = n.coerceAtMost((budget / per).toInt()).coerceIn(3, 14)
+        return BurstPlan(n, null, null, null, 0f, nr, edgeOff, "hibrido: cor/tom do ISP, NR=$nr nitidezISP=${if (edgeOff) "off" else "on"}, ISO $aeIso", hybrid = true)
     }
 
     private fun planInternal(

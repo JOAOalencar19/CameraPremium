@@ -163,7 +163,9 @@ class PhotoProcessor(private val ctx: Context, private val inventory: CameraInve
             val cropRect = if (decoded != null) job.jpegCrop else job.crop
             val src = if (cropRect != null) CroppedSource(source, cropRect) else source
             val kind = when {
-                decoded != null || !job.srgbCurve -> SourceKind.SYSTEM_RENDERED
+                decoded != null -> SourceKind.SYSTEM_RENDERED
+                job.plan.hybrid -> SourceKind.HYBRID
+                !job.srgbCurve -> SourceKind.SYSTEM_RENDERED
                 merged != null && merged.framesMerged > 1 -> SourceKind.BURST_MERGED
                 else -> SourceKind.SINGLE_SRGB_CURVE
             }

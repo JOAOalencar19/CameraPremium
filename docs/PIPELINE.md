@@ -131,3 +131,38 @@ estética (tom, cor, ruído residual e nitidez).
 Menos halos em todas; detalhe dentro de 0–3% da entrada (parte da diferença vem do ajuste
 tonal/cor, não da NR). São JPEGs públicos, não capturas do S26 Ultra: a validação de pele,
 cílios e sobrancelhas em retratos reais ainda precisa ser feita no aparelho.
+
+## 6. Revisão 0.3.0 — foto noturna real e fonte Híbrida
+
+**Análise da foto de teste (interior, fim de tarde, S26 Ultra):** o EXIF trazia
+`Software: CameraPremium - Original (sistema)` — era o JPEG que o Android entrega a apps de
+terceiros (quadro único, ISO 167, 1/60 s, f/1.4, 4000×2252), **não** a versão Natural Premium.
+Defeitos visíveis: textura de "aquarela"/vermes na malha da camisa e no fundo (NR espacial HQ),
+contornos brancos nas dobras e pele cerosa com bordas marcadas (nitidez HQ). A câmera nativa da
+Samsung usa um pipeline multiquadro proprietário que **não** é exposto ao Camera2 comum.
+
+**Mudanças:**
+- **Fonte Híbrida (nova padrão):** mantém curva de tom e cor do ISP, mas pede NR `MINIMAL`
+  (ou `FAST`) e nitidez `OFF` em 5–14 quadros (AE travado); o ruído sai pela fusão temporal.
+- **Ruído temporal:** a fusão mede o ruído real pela diferença entre quadros alinhados (a
+  textura é igual em todos e se cancela) e esse valor limita o modelo de ruído espacial — malha,
+  cabelo e barba não são mais confundidos com ruído.
+- **Camera2 Extensions:** modo Noite usa a extensão Noite do fabricante quando exposta (padrão
+  ligado); modo Foto pode usar a extensão Auto (opcional). Natural Premium aplica toque leve por
+  cima. Se a extensão falhar, volta sozinho à sessão normal. O diagnóstico lista as extensões,
+  tamanhos e chaves aceitas.
+
+**Teste com verdade conhecida** (malha mesclada, ruído σ 7, `teste_tecido_verdade_isp_hibrido.jpg`):
+
+| | erro L\* vs verdade | energia de textura (real 3,24) | overshoot |
+|---|---|---|---|
+| quadro único com NR+nitidez fortes (modelo do ISP) | 2,95 | 3,32 (inclui ruído/halos) | 0,084 |
+| Híbrido (7 quadros) | **1,85** | **3,38** | **0,075** |
+
+O erro residual do Híbrido (~1,8) é quase todo um ajuste de brilho de +0,1 EV, não perda de detalhe.
+
+**Sobre "XMLs":** configurações XML de GCam (Google Camera modificada) e presets XMP/DCP do
+Lightroom são *parâmetros* para pipelines de terceiros (as bibliotecas fechadas do HDR+ do
+Google, o motor do Adobe Camera Raw). Não contêm algoritmos e não podem ser carregados neste app.
+O equivalente aqui é o `ProcessingProfile` — todos os parâmetros num único lugar, ajustáveis por
+medição (veja o protocolo de comparação com iPhone).

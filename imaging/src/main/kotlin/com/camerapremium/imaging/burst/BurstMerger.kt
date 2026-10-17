@@ -50,6 +50,8 @@ class BurstMerger(
     private var wBlock = FloatArray(0)
     private var merged = 0
     private var rejected = 0
+    /** |block-mean difference| histograms per brightness bin (quantized x4) for temporal noise. */
+    private val diffHist = Array(MergedYuv.TEMPORAL_BINS) { IntArray(512) }
 
     val framesMerged get() = merged
     val framesRejected get() = rejected
@@ -95,12 +97,31 @@ class BurstMerger(
             }
             eff[my * mw + mx] = if (c > 0) s / c else 1f
         }
-        val result = MergedYuv(w, h, outY, accU, accV, eff, merged, rejected)
+        val result = MergedYuv(w, h, outY, accU, accV, eff, merged, rejected, temporalSigma())
         ref = null; refPyramid = null; pending.clear()
         return result
     }
 
     // ------------------------------------------------------------------------------------
+
+    /** sigma per bin from the median absolute difference of 2x2 block means (robust to motion). */
+    private fun temporalSigma(): FloatArray? {
+        if (merged < 2) return null
+        val out = FloatArray(MergedYuv.TEMPORAL_BINS) { -1f }
+        for (b in out.indices) {
+            val hst = diffHist[b]
+            val total = hst.sum()
+            if (total < 200) continue
+            var acc = 0; var med = 0
+            for (i in hst.indices) { acc += hst[i]; if (acc * 2 >= total) { med = i; break } }
+            val mad = (med + 0.5f) / 4f
+            // block-mean difference sigma = sigma * sqrt(2) / 2 ; median|N(0,s)| = 0.6745 s
+            out[b] = mad / 0.6745f / 0.7071f
+        }
+        if (out.all { it < 0f }) return null
+        NoiseTable.fillMissing(out, 1.5f)
+        return out
+    }
 
     private fun promoteReference() {
         var best = 0
@@ -278,7 +299,9 @@ class BurstMerger(
         val nt = noise!!
         val lo = params.robustLo; val hi = params.robustHi
         val floor = params.noiseFloor
-        pool.forEach(ch, IndexedTask { by, _ ->
+        val localHists = Array(pool.size) { Array(MergedYuv.TEMPORAL_BINS) { IntArray(512) } }
+        pool.forEach(ch, IndexedTask { by, slot ->
+            val hist = localHists[slot]
             val y0 = by * 2
             val tyi = (y0 / tile).coerceAtMost(field.tilesY - 1)
             for (bx in 0 until cw) {
@@ -297,6 +320,10 @@ class BurstMerger(
                     }
                 }
                 rs /= n; asum /= n
+                if ((bx and 3) == 0) {
+                    val q = (abs(rs - asum) * 4f).toInt().coerceAtMost(511)
+                    hist[(rs / 256f * MergedYuv.TEMPORAL_BINS).toInt().coerceIn(0, MergedYuv.TEMPORAL_BINS - 1)][q]++
+                }
                 val sigma = nt.sigma(rs).coerceAtLeast(floor) * 0.7071f // std of a 4-px mean difference
                 // chroma: offset halved (rounded toward the nearest chroma sample). Chroma is part of
                 // the robustness test, otherwise an object with the same luma as the background
@@ -324,6 +351,7 @@ class BurstMerger(
                 wBlock[ci] += wgt
             }
         })
+        for (lh in localHists) for (b in lh.indices) { val src = lh[b]; val dst = diffHist[b]; for (k in src.indices) dst[k] += src[k] }
     }
 
     // ------------------------------------------------------------------------------ helpers

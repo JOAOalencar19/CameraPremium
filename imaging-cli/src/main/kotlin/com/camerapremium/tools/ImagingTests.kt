@@ -57,6 +57,7 @@ object ImagingTests {
             "pele: brilho especular contido" to { skinSpecular() },
             "pele: suavizacao opcional preserva poros" to { skinSmoothingOptional() },
             "fusao: reduz ruido e evita fantasmas" to { burst() },
+            "hibrido vs quadro unico com NR/nitidez fortes do ISP" to { hybridVsIsp() },
             "desempenho 12 MP" to { perf() },
         )
         for ((name, body) in tests) {
@@ -348,6 +349,91 @@ object ImagingTests {
         val spreadOff = pOff[5] - pOff[1]; val spreadOn = pOn[5] - pOn[1]
         check("manchas de media frequencia atenuadas, sutilmente", spreadOn < spreadOff && spreadOn > spreadOff * 0.75,
             "faixa L* p5..p95 %.2f -> %.2f".format(spreadOff, spreadOn))
+    }
+
+    /** Heathered fabric texture (like the t-shirt in a real night-indoor test photo). */
+    private fun fabric(w: Int, h: Int): ArgbImage {
+        val rnd = java.util.Random(5)
+        val base = FloatArray(w * h) { 0.45f + 0.09f * rnd.nextGaussian().toFloat() }
+        val b = Synthetic.gaussianBlur(base, w, h, 0.7f)
+        val img = ArgbImage(w, h)
+        for (y in 0 until h) for (x in 0 until w) {
+            val stripe = 0.03f * Math.sin(y * 0.9).toFloat()
+            val v = ((b[y * w + x] + stripe) * 255).toInt()
+            img.pixels[y * w + x] = Synthetic.rgb(v, (v * 0.98).toInt(), (v * 0.9).toInt())
+        }
+        return img
+    }
+
+    /** Crude model of a third-party ISP HQ path: strong spatial NR (watercolor) + strong USM (halos). */
+    private fun ispSingle(clean: ArgbImage, sigma: Float): ArgbImage {
+        val w = clean.width; val h = clean.height
+        val noisy = Synthetic.addNoise(clean, sigma, 909)
+        val out = ArgbImage(w, h)
+        for (ch in 0..2) {
+            val shift = 16 - ch * 8
+            val v = FloatArray(w * h) { ((noisy.pixels[it] shr shift) and 0xFF) / 255f }
+            val a = FloatArray(w * h); val bb = FloatArray(w * h)
+            com.camerapremium.imaging.util.Filters.guidedCoefficients(v, v, w, h, 3, com.camerapremium.imaging.util.ConstantEps(0.004f), a, bb, com.camerapremium.imaging.util.GuidedWorkspace())
+            val nr = FloatArray(w * h) { a[it] * v[it] + bb[it] }
+            val blur = Synthetic.gaussianBlur(nr, w, h, 1.3f)
+            for (i in 0 until w * h) {
+                val sh = (nr[i] + 1.4f * (nr[i] - blur[i])).coerceIn(0f, 1f)
+                val q = (sh * 255 + 0.5f).toInt()
+                out.pixels[i] = (out.pixels[i] or (0xFF shl 24)) or (q shl shift)
+            }
+        }
+        return out
+    }
+
+    private fun lumaRmse(a: ArgbImage, b: ArgbImage): Double {
+        var s = 0.0
+        for (i in a.pixels.indices) {
+            val la = ColorMath.linearSrgbToLab(ColorMath.SRGB8_TO_LINEAR[(a.pixels[i] shr 16) and 255], ColorMath.SRGB8_TO_LINEAR[(a.pixels[i] shr 8) and 255], ColorMath.SRGB8_TO_LINEAR[a.pixels[i] and 255])[0]
+            val lb = ColorMath.linearSrgbToLab(ColorMath.SRGB8_TO_LINEAR[(b.pixels[i] shr 16) and 255], ColorMath.SRGB8_TO_LINEAR[(b.pixels[i] shr 8) and 255], ColorMath.SRGB8_TO_LINEAR[b.pixels[i] and 255])[0]
+            s += (la - lb) * (la - lb)
+        }
+        return Math.sqrt(s / a.pixels.size)
+    }
+
+    private fun hybridVsIsp() {
+        val w = 360; val h = 300; val sigma = 7f
+        val clean = fabric(w, h)
+        val isp = ispSingle(clean, sigma)
+        val merger = BurstMerger(pool)
+        for (i in 0 until 7) merger.add(Synthetic.burstFrame(clean, 0, 0, sigma, 300L + i))
+        val merged = merger.finish()
+        val hyb = ArgbImage(w, h)
+        PhotoPipeline(pool).process(MergedYuvSource(merged), CaptureInfo(SourceKind.HYBRID, framesMerged = merged.framesMerged),
+            ProcessingProfile.NATURAL_PREMIUM, OutputOptions(dither = false), ArgbSink(hyb), merged)
+        DesktopIO.write(DesktopIO.sideBySide(DesktopIO.sideBySide(clean, isp), hyb), File(outDir, "tecido_real_isp_hibrido.png"))
+        val eIsp = lumaRmse(isp, clean); val eHyb = lumaRmse(hyb, clean)
+        check("hibrido mais fiel a textura real", eHyb < eIsp, "erro L* vs verdade: ISP %.2f, hibrido %.2f".format(eIsp, eHyb))
+        val oIsp = ImageMetrics.stats(isp).overshootIndex; val oHyb = ImageMetrics.stats(hyb).overshootIndex
+        val tC = ImageMetrics.stats(clean).midBandEnergy; val tIsp = ImageMetrics.stats(isp).midBandEnergy; val tHyb = ImageMetrics.stats(hyb).midBandEnergy
+        check("textura real do tecido preservada (>= 90%)", tHyb >= tC * 0.9, "energia: real %.2f, ISP %.2f (inclui ruido/halos), hibrido %.2f".format(tC, tIsp, tHyb))
+        println("        overshoot ISP %.4f hibrido %.4f".format(oIsp, oHyb))
+        val raw = ArgbImage(w, h)
+        val rr = FloatArray(w * h); val rg = FloatArray(w * h); val rb = FloatArray(w * h)
+        MergedYuvSource(merged).readEncoded(0, 0, w, h, rr, rg, rb)
+        for (i in 0 until w * h) raw.pixels[i] = Synthetic.rgb((rr[i] * 255).toInt(), (rg[i] * 255).toInt(), (rb[i] * 255).toInt())
+        val cy = Synthetic.toYuv(clean); val cyImg = ArgbImage(w, h)
+        val c1 = FloatArray(w * h); val c2 = FloatArray(w * h); val c3 = FloatArray(w * h)
+        com.camerapremium.imaging.image.YuvFrameSource(cy).readEncoded(0, 0, w, h, c1, c2, c3)
+        for (i in 0 until w * h) cyImg.pixels[i] = Synthetic.rgb((c1[i] * 255).toInt(), (c2[i] * 255).toInt(), (c3[i] * 255).toInt())
+        println("        diag: energia verdade-via-YUV %.2f, fusao crua %.2f (erro %.2f), noise %s".format(
+            ImageMetrics.stats(cyImg).midBandEnergy, ImageMetrics.stats(raw).midBandEnergy, lumaRmse(raw, clean), "-"))
+        val base = ProcessingProfile.NATURAL_PREMIUM
+        for ((name, prof) in listOf(
+            "sem NR luma" to base.copy(lumaNrStrength = 0f),
+            "sem NR croma" to base.copy(chromaNrStrength = 0f),
+            "sem nitidez" to base.copy(sharpenHybrid = 0f),
+            "sem cor" to base.copy(chroma = 1f, vibrance = 0f, redChroma = 1f, greenChroma = 1f, skyChroma = 1f, greenHueShiftDeg = 0f, castCorrection = 0f),
+            "sem nada" to base.copy(lumaNrStrength = 0f, chromaNrStrength = 0f, sharpenHybrid = 0f, chroma = 1f, vibrance = 0f, castCorrection = 0f, microContrast = 0f))) {
+            val o = ArgbImage(w, h)
+            val res = PhotoPipeline(pool).process(MergedYuvSource(merged), CaptureInfo(SourceKind.HYBRID, framesMerged = merged.framesMerged), prof, OutputOptions(dither = false), ArgbSink(o), merged)
+            println("        diag %-14s erro %.2f energia %.2f  %s".format(name, lumaRmse(o, clean), ImageMetrics.stats(o).midBandEnergy, if (name == "sem nada") res.stats.toString() else ""))
+        }
     }
 
     private fun burst() {

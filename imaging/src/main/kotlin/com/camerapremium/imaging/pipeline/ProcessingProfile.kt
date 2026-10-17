@@ -74,6 +74,8 @@ data class ProcessingProfile(
 
     // ---- noise ----
     val lumaNrStrength: Float = 2.0f,
+    /** Luma NR strength when the noise level was measured temporally (reliable, no margin). */
+    val lumaNrStrengthTemporal: Float = 1.1f,
     /** Fraction of the removed luminance noise added back as fine grain (prevents the plastic look). */
     val grainRetention: Float = 0.3f,
     val chromaNrStrength: Float = 2.5f,
@@ -89,6 +91,7 @@ data class ProcessingProfile(
     val sharpenBurst: Float = 0.38f,
     val sharpenSingleSrgb: Float = 0.24f,
     val sharpenSystemRendered: Float = 0f,
+    val sharpenHybrid: Float = 0.32f,
     /** Gaussian sigma (px at 12 MP) of the unsharp mask; scaled with resolution. */
     val sharpenRadius: Float = 0.9f,
     /** Absolute coring threshold (Oklab L) added to the noise-based one. */
@@ -106,6 +109,7 @@ data class ProcessingProfile(
         SourceKind.BURST_MERGED -> sharpenBurst
         SourceKind.SINGLE_SRGB_CURVE -> sharpenSingleSrgb
         SourceKind.SYSTEM_RENDERED -> sharpenSystemRendered
+        SourceKind.HYBRID -> sharpenHybrid
     }
 
     companion object {

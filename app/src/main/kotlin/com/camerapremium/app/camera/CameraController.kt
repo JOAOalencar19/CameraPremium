@@ -7,6 +7,10 @@ import android.graphics.Rect
 import android.hardware.camera2.CameraCaptureSession
 import android.hardware.camera2.CameraCharacteristics
 import android.hardware.camera2.CameraDevice
+import android.hardware.camera2.CameraExtensionCharacteristics
+import android.hardware.camera2.CameraExtensionSession
+import android.hardware.camera2.params.ExtensionSessionConfiguration
+import android.graphics.SurfaceTexture
 import android.hardware.camera2.CameraManager
 import android.hardware.camera2.CameraMetadata
 import android.hardware.camera2.CaptureFailure
@@ -60,6 +64,7 @@ class CaptureSpec(
     val options: JobOptions,
     val multiFrame: Boolean,
     val nativeSource: Boolean = true,
+    val hybridSource: Boolean = false,
 )
 
 /**
@@ -126,6 +131,12 @@ class CameraController(
     private var analysisCount = 0
     private var openToken = 0
     private var configuring = false
+    /** Camera2 extension (manufacturer multi-frame pipeline) wanted for the next session. */
+    private var extensionWanted: Int? = null
+    private var extSession: CameraExtensionSession? = null
+    private var extKeys: Set<CaptureRequest.Key<*>> = emptySet()
+    @Volatile var activeExtension: Int? = null
+        private set
 
     // ---- capture state machine
     private enum class St { IDLE, WAIT_AF, WAIT_PRE, WAIT_NON_PRE, CAPTURING }
@@ -139,14 +150,15 @@ class CameraController(
     // ------------------------------------------------------------------------------ public API
 
     @SuppressLint("MissingPermission")
-    fun open(lensId: String, aspect: AspectRatio, highRes: Boolean, raw: Boolean) = cam.post {
+    fun open(lensId: String, aspect: AspectRatio, highRes: Boolean, raw: Boolean, extension: Int? = null) = cam.post {
         closeInternal()
         val l = inventory.lenses[lensId] ?: run { post { listener?.onError("Camera $lensId indisponivel") }; return@post }
         lens = l; this.aspect = aspect; this.highRes = highRes; this.rawWanted = raw
+        extensionWanted = extension?.takeIf { it in l.extensions }
         // the SurfaceView is resized for the new stream: wait for the UI to hand it back
         previewSurface = null
         zoomRatio = 1f; evIndex = 0; aeAfLocked = false; meteringRegion = null; manual = null
-        val ps = choosePreviewSize(l, aspect)
+        val ps = extensionWanted?.let { extensionPreviewSize(l, it, aspect) } ?: choosePreviewSize(l, aspect)
         previewSize = ps
         val token = ++openToken
         post { listener?.onPreviewSize(l, ps) }
@@ -239,8 +251,9 @@ class CameraController(
     }
 
     fun capture(spec: CaptureSpec) = cam.post {
-        if (st != St.IDLE || session == null || job != null) { post { listener?.onBusy() }; return@post }
+        if (st != St.IDLE || (session == null && extSession == null) || job != null) { post { listener?.onBusy() }; return@post }
         if (!processor.canAcceptCapture()) { post { listener?.onBusy() }; return@post }
+        if (extSession != null) { captureWithExtension(spec); return@post }
         pendingSpec = spec
         val l = lens ?: return@post
         val r = lastResult
@@ -282,6 +295,8 @@ class CameraController(
         val l = lens ?: return
         if (previewSurface == null || device == null || configuring) return
         configuring = true
+        val ext = extensionWanted
+        if (ext != null && Build.VERSION.SDK_INT >= 31) { createExtensionSession(l, ext); return }
         val target = if (aspect == AspectRatio.R1_1) AspectRatio.R4_3.value else aspect.value
         val yuv = bestSize(l.yuvSizes, target, 16_800_000L)
         val jpeg = bestSize(l.jpegSizes, target)
@@ -386,6 +401,7 @@ class CameraController(
     }
 
     private fun updatePreview() {
+        if (extSession != null) { startExtensionPreview(); return }
         val b = previewBuilder ?: return
         val s = session ?: return
         if (st != St.IDLE) return
@@ -597,7 +613,7 @@ class CameraController(
                 val t = m.exposureNs ?: aeT
                 BurstPlan(if (t > 250_000_000L) 1 else 3, null, null, null, 0f, CameraMetadata.NOISE_REDUCTION_MODE_FAST, false, "manual")
             }
-            else -> CapturePlanner.plan(l, spec.mode, aeT, aeIso, sceneHint, spec.multiFrame, spec.nativeSource, thermalThrottle())
+            else -> CapturePlanner.plan(l, spec.mode, aeT, aeIso, sceneHint, spec.multiFrame, spec.nativeSource, thermalThrottle(), spec.hybridSource)
         }
         val useSrgbCurve = plan.frames > 0 && !flashWillFire && (l.supportsSrgbTonemap || l.supportsContrastCurve) && plan.exposureNs != null
 
@@ -667,6 +683,11 @@ class CameraController(
                         }
                         if (plan.edgeOff) b.set(CaptureRequest.EDGE_MODE, CameraMetadata.EDGE_MODE_OFF)
                         if (plan.noiseReductionMode in l.nrModes) b.set(CaptureRequest.NOISE_REDUCTION_MODE, plan.noiseReductionMode)
+                    } else if (plan.hybrid) {
+                        // HAL tone/color kept; its spatial NR minimized and sharpening off
+                        setQuality(b, l, hq = true)
+                        if (plan.noiseReductionMode in l.nrModes) b.set(CaptureRequest.NOISE_REDUCTION_MODE, plan.noiseReductionMode)
+                        if (plan.edgeOff) b.set(CaptureRequest.EDGE_MODE, CameraMetadata.EDGE_MODE_OFF)
                     } else setQuality(b, l, hq = true)
                     b.setTag(FrameRole.BURST)
                     requests.add(b.build())
@@ -759,6 +780,144 @@ class CameraController(
             } catch (e: Exception) { Log.w(TAG, "restore preview", e) }
         }
         post { listener?.onCaptureDone() }
+    }
+
+    // ------------------------------------------------------------------------------ extensions
+
+    private fun extensionChars(l: LensInfo): CameraExtensionCharacteristics? =
+        try { manager.getCameraExtensionCharacteristics(l.id) } catch (_: Exception) { null }
+
+    private fun extensionPreviewSize(l: LensInfo, ext: Int, a: AspectRatio): Size? {
+        val chars = extensionChars(l) ?: return null
+        val sizes = try { chars.getExtensionSupportedSizes(ext, SurfaceTexture::class.java) } catch (_: Exception) { emptyList<Size>() }
+        val target = if (a == AspectRatio.R1_1) AspectRatio.R4_3.value else a.value
+        return sizes.filter { abs(it.width.toFloat() / it.height - target) < 0.02f && it.width <= 1920 }.maxByOrNull { it.width * it.height }
+            ?: sizes.filter { it.width <= 1920 }.maxByOrNull { it.width * it.height }
+    }
+
+    /**
+     * Session that runs the manufacturer's own still pipeline (Camera2 Extensions: Night, Auto,
+     * HDR...). This is the only public way for a third-party app to get the multi-frame
+     * processing the stock camera uses. Falls back to the regular session if it fails.
+     */
+    private fun createExtensionSession(l: LensInfo, ext: Int) {
+        val d = device ?: run { configuring = false; return }
+        val surface = previewSurface ?: run { configuring = false; return }
+        val chars = extensionChars(l)
+        val target = if (aspect == AspectRatio.R1_1) AspectRatio.R4_3.value else aspect.value
+        val jpegSizes = try { chars?.getExtensionSupportedSizes(ext, ImageFormat.JPEG) ?: emptyList() } catch (_: Exception) { emptyList<Size>() }
+        val jpeg = bestSize(jpegSizes, target)
+        if (chars == null || jpeg == null) { fallbackFromExtension("extensao sem tamanho JPEG"); return }
+        closeReaders()
+        jpegReader = ImageReader.newInstance(jpeg.width, jpeg.height, ImageFormat.JPEG, 2).also {
+            it.setOnImageAvailableListener({ r -> onJpegImage(r) }, img)
+        }
+        extKeys = if (Build.VERSION.SDK_INT >= 33) try { chars.getAvailableCaptureRequestKeys(ext).toSet() } catch (_: Exception) { emptySet() } else emptySet()
+        val outputs = listOf(OutputConfiguration(surface), OutputConfiguration(jpegReader!!.surface))
+        val cfg = ExtensionSessionConfiguration(ext, outputs, camExecutor, object : CameraExtensionSession.StateCallback() {
+            override fun onConfigured(s: CameraExtensionSession) {
+                configuring = false
+                if (device !== d) { s.close(); return }
+                extSession = s; activeExtension = ext
+                startExtensionPreview()
+                val info = "extensao ${CameraInventory.extName(ext)} | JPEG=$jpeg preview=$previewSize"
+                Log.i(TAG, "session: $info")
+                post { listener?.onOpened(l, info) }
+            }
+            override fun onConfigureFailed(s: CameraExtensionSession) {
+                Log.w(TAG, "extension session failed")
+                cam.post { fallbackFromExtension("a extensao do aparelho recusou a sessao") }
+            }
+        })
+        try { d.createExtensionSession(cfg) } catch (e: Exception) { Log.w(TAG, "createExtensionSession", e); fallbackFromExtension(e.message ?: "erro") }
+    }
+
+    private fun fallbackFromExtension(reason: String) {
+        Log.w(TAG, "extension fallback: $reason")
+        extensionWanted = null; extSession = null; activeExtension = null
+        configuring = false
+        post { listener?.onError("Processamento do aparelho indisponivel aqui; usando o modo normal") }
+        tryCreateSession()
+    }
+
+    private fun <T> extSet(b: CaptureRequest.Builder, key: CaptureRequest.Key<T>, v: T) {
+        // only keys the extension declares (API 33+); older extensions accept none safely
+        if (key in extKeys) b.set(key, v)
+    }
+
+    private fun startExtensionPreview() {
+        val d = device ?: return
+        val s = extSession ?: return
+        val l = lens ?: return
+        val surface = previewSurface ?: return
+        try {
+            val b = d.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW)
+            b.addTarget(surface)
+            applyExtensionSettings(b, l)
+            s.setRepeatingRequest(b.build(), camExecutor, object : CameraExtensionSession.ExtensionCaptureCallback() {})
+        } catch (e: Exception) { Log.w(TAG, "ext preview", e) }
+    }
+
+    private fun applyExtensionSettings(b: CaptureRequest.Builder, l: LensInfo) {
+        if (l.zoomRange != null) extSet(b, CaptureRequest.CONTROL_ZOOM_RATIO, zoomRatio)
+        extSet(b, CaptureRequest.CONTROL_AE_EXPOSURE_COMPENSATION, evIndex)
+        val region = meteringRegion
+        if (region != null) {
+            extSet(b, CaptureRequest.CONTROL_AF_REGIONS, arrayOf(region))
+            extSet(b, CaptureRequest.CONTROL_AE_REGIONS, arrayOf(region))
+        }
+    }
+
+    private fun captureWithExtension(spec: CaptureSpec) {
+        val d = device ?: return
+        val s = extSession ?: return
+        val l = lens ?: return
+        val jpeg = jpegReader ?: return
+        val ext = activeExtension ?: return
+        val rotation = if (l.front) (l.sensorOrientation - spec.deviceOrientation + 360) % 360 else (l.sensorOrientation + spec.deviceOrientation) % 360
+        val plan = BurstPlan(0, null, null, null, 0f, CameraMetadata.NOISE_REDUCTION_MODE_HIGH_QUALITY, false,
+            "processamento do aparelho (extensao ${CameraInventory.extName(ext)})")
+        val newJob = CaptureJob(
+            id = System.currentTimeMillis(), lens = l, options = spec.options, rotation = rotation,
+            mirror = l.front && spec.mirrorFront, crop = null, jpegCrop = aspectCrop(jpeg.width, jpeg.height), plan = plan,
+            srgbCurve = false, faces = emptyList(), mode = spec.mode, originalFromJpeg = true, expectRaw = false,
+            lensLabel = inventory.labelFor(l) + " · " + CameraInventory.extName(ext),
+        )
+        job = newJob
+        processor.begin(newJob)
+        setState(St.CAPTURING)
+        try {
+            val b = d.createCaptureRequest(CameraDevice.TEMPLATE_STILL_CAPTURE)
+            b.addTarget(jpeg.surface)
+            applyExtensionSettings(b, l)
+            extSet(b, CaptureRequest.JPEG_ORIENTATION, 0)
+            extSet(b, CaptureRequest.JPEG_QUALITY, spec.options.jpegQuality.toByte())
+            s.capture(b.build(), camExecutor, object : CameraExtensionSession.ExtensionCaptureCallback() {
+                override fun onCaptureStarted(session: CameraExtensionSession, request: CaptureRequest, timestamp: Long) {
+                    post { listener?.onCaptureStarted(1, 1500) }
+                }
+                override fun onCaptureFailed(session: CameraExtensionSession, request: CaptureRequest) {
+                    setState(St.IDLE)
+                    if (job === newJob) { job = null; processor.abort(newJob, "O processamento do aparelho falhou nesta foto") }
+                    post { listener?.onCaptureDone() }
+                }
+                override fun onCaptureSequenceCompleted(session: CameraExtensionSession, sequenceId: Int) {
+                    setState(St.IDLE)
+                    post { listener?.onCaptureDone() }
+                }
+                override fun onCaptureSequenceAborted(session: CameraExtensionSession, sequenceId: Int) {
+                    setState(St.IDLE)
+                    post { listener?.onCaptureDone() }
+                }
+            })
+            cam.postDelayed({ watchdog(newJob) }, 12_000L)
+        } catch (e: Exception) {
+            Log.e(TAG, "ext capture", e)
+            setState(St.IDLE)
+            job = null
+            processor.abort(newJob, "Falha na captura: ${e.message}")
+            post { listener?.onCaptureDone() }
+        }
     }
 
     private fun watchdog(j: CaptureJob) {
@@ -940,6 +1099,8 @@ class CameraController(
         if (j != null) { processor.abort(j, "Captura interrompida"); job = null }
         setState(St.IDLE)
         try { session?.close() } catch (_: Exception) {}
+        try { extSession?.close() } catch (_: Exception) {}
+        extSession = null; activeExtension = null
         session = null
         try { device?.close() } catch (_: Exception) {}
         device = null

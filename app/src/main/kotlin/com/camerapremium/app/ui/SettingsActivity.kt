@@ -48,11 +48,20 @@ class SettingsActivity : Activity() {
             "Natural Premium usa a fusao multiquadro e o pipeline proprio. O original do sistema e sempre preservado para comparacao.") {
             s.processing = if (it == 0) ProcessingChoice.NATURAL_PREMIUM else ProcessingChoice.SYSTEM_ONLY
         }
-        choice("Fonte do Natural Premium", listOf("Nativa do aparelho", "Multiquadro proprio (experimental)"),
-            if (s.captureSource == CaptureSource.NATIVE) 0 else 1,
-            "Nativa preserva a reducao de ruido, a nitidez e a curva do processador de imagem do aparelho em cada quadro. A experimental desliga esses ajustes do ISP e usa o HDR proprio; use para comparar.") {
-            s.captureSource = if (it == 0) CaptureSource.NATIVE else CaptureSource.CUSTOM_BURST
+        choice("Fonte do Natural Premium", listOf("Hibrida (recomendada)", "Nativa do aparelho", "Multiquadro proprio (experimental)"),
+            s.captureSource.ordinal,
+            "Hibrida mantem a cor e o tom do aparelho, mas troca a reducao de ruido e a nitidez fortes do processador (que geram textura de aquarela e contornos) por fusao de varios quadros. Nativa usa o processamento completo do aparelho em cada quadro.") {
+            s.captureSource = CaptureSource.values()[it]
         }
+        val anyExt = rear?.extensions ?: emptyList()
+        val hasNight = android.hardware.camera2.CameraExtensionCharacteristics.EXTENSION_NIGHT in anyExt
+        val hasAuto = android.hardware.camera2.CameraExtensionCharacteristics.EXTENSION_AUTOMATIC in anyExt
+        toggle("Noite com processamento do aparelho", s.vendorNight && hasNight,
+            if (hasNight) "No modo Noite usa o multiquadro do proprio fabricante (Camera2 Extensions). O Natural Premium e aplicado com toque leve por cima." else "Este aparelho nao expoe o modo Noite do fabricante para apps.",
+            enabled = hasNight) { s.vendorNight = it }
+        toggle("Foto com processamento do aparelho", s.vendorAuto && hasAuto,
+            if (hasAuto) "No modo Foto usa o processamento automatico do fabricante. Mais lento por foto." else "Este aparelho nao expoe o modo Auto do fabricante para apps.",
+            enabled = hasAuto) { s.vendorAuto = it }
         choice("Nitidez", listOf("Suave", "Natural", "Definida"), s.sharpness.ordinal,
             "Natural evita contornos marcados. Fontes ja nitidas pelo aparelho nao recebem nitidez extra.") {
             s.sharpness = Sharpness.values()[it]

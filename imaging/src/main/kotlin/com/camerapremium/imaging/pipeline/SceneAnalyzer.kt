@@ -178,7 +178,7 @@ object SceneAnalyzer {
         val target = Filters.lerp(targetLit, profile.targetKeyNight, night)
 
         // ---- 7. dynamic range compression of the base layer
-        val rendered = info.sourceKind == SourceKind.SYSTEM_RENDERED
+        val rendered = info.sourceKind.halTone
         val minHi = if (rendered) max(0.85f, profile.minHighlightCompression) else profile.minHighlightCompression
         val minLo = if (rendered) max(0.92f, profile.minShadowCompression) else profile.minShadowCompression
         val dh = p995 - key

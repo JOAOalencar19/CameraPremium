@@ -13,7 +13,9 @@ enum class CaptureMode(val label: String) { PHOTO("FOTO"), NIGHT("NOITE"), PORTR
 enum class ProcessingChoice { NATURAL_PREMIUM, SYSTEM_ONLY }
 enum class LensSelection { AUTOMATIC, PHYSICAL_PREFERRED }
 /** NATIVE keeps the ISP's own noise reduction, sharpening and tone curve on every burst frame. */
-enum class CaptureSource { NATIVE, CUSTOM_BURST }
+/** HYBRID (default): HAL tone/color, ISP spatial NR minimized and sharpening off, multi-frame merge.
+ *  NATIVE: every frame with the ISP's HQ NR/sharpening. CUSTOM_BURST: sRGB curve, own HDR. */
+enum class CaptureSource { HYBRID, NATIVE, CUSTOM_BURST }
 enum class Sharpness(val scale: Float) { SOFT(0.7f), NATURAL(1f), CRISP(1.25f) }
 
 /** Thin typed wrapper over SharedPreferences. */
@@ -72,14 +74,22 @@ class AppSettings(context: Context) {
         get() = p.getInt("jpeg_q", 95)
         set(v) = p.edit().putInt("jpeg_q", v).apply()
     var captureSource: CaptureSource
-        get() = enumOr(p.getString("capture_source", null), CaptureSource.NATIVE)
-        set(v) = p.edit().putString("capture_source", v.name).apply()
+        get() = enumOr(p.getString("capture_source_v2", null), CaptureSource.HYBRID)
+        set(v) = p.edit().putString("capture_source_v2", v.name).apply()
     var sharpness: Sharpness
         get() = enumOr(p.getString("sharpness", null), Sharpness.NATURAL)
         set(v) = p.edit().putString("sharpness", v.name).apply()
     var skinSmoothing: Boolean
         get() = p.getBoolean("skin_smoothing", false)
         set(v) = p.edit().putBoolean("skin_smoothing", v).apply()
+    /** Use the manufacturer's Night extension in NIGHT mode when the device exposes it. */
+    var vendorNight: Boolean
+        get() = p.getBoolean("vendor_night", true)
+        set(v) = p.edit().putBoolean("vendor_night", v).apply()
+    /** Use the manufacturer's Auto extension in PHOTO mode when available. */
+    var vendorAuto: Boolean
+        get() = p.getBoolean("vendor_auto", false)
+        set(v) = p.edit().putBoolean("vendor_auto", v).apply()
     var compareHintsShown: Int
         get() = p.getInt("compare_hints", 0)
         set(v) = p.edit().putInt("compare_hints", v).apply()

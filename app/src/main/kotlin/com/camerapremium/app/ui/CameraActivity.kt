@@ -361,11 +361,22 @@ class CameraActivity : Activity(), CameraController.Listener, PhotoProcessor.Lis
     private fun stopsFor(l: LensInfo): List<ZoomStop> = if (l.front) inventory.frontStops else inventory.rearStops
 
     private var pendingRatio = 1f
+    private var currentExtension: Int? = null
+
+    /** Manufacturer pipeline (Camera2 Extensions) for this mode, when exposed and enabled. */
+    private fun extensionFor(l: LensInfo, m: CaptureMode): Int? = when {
+        m == CaptureMode.NIGHT && settings.vendorNight && android.hardware.camera2.CameraExtensionCharacteristics.EXTENSION_NIGHT in l.extensions ->
+            android.hardware.camera2.CameraExtensionCharacteristics.EXTENSION_NIGHT
+        m == CaptureMode.PHOTO && settings.vendorAuto && android.hardware.camera2.CameraExtensionCharacteristics.EXTENSION_AUTOMATIC in l.extensions ->
+            android.hardware.camera2.CameraExtensionCharacteristics.EXTENSION_AUTOMATIC
+        else -> null
+    }
 
     private fun open(l: LensInfo, ratio: Float) {
         lens = l
         pendingRatio = ratio
-        controller.open(l.id, settings.aspect, settings.highResolution, settings.raw)
+        currentExtension = extensionFor(l, mode)
+        controller.open(l.id, settings.aspect, settings.highResolution, settings.raw, currentExtension)
         controller.setFlash(settings.flash)
     }
 
@@ -518,6 +529,12 @@ class CameraActivity : Activity(), CameraController.Listener, PhotoProcessor.Lis
         manualPanel = null
         controller.setManual(null)
         controller.setPortrait(m == CaptureMode.PORTRAIT)
+        val cur = lens
+        if (cur != null && extensionFor(cur, m) != currentExtension) {
+            // the manufacturer's pipeline needs its own session: reopen
+            freezeFrame()
+            open(cur, controller.currentZoom())
+        }
         val l = lens
         if (m == CaptureMode.PRO && l != null) {
             val panel = ManualPanel(this, l) { s -> controller.setManual(s) }
@@ -572,7 +589,8 @@ class CameraActivity : Activity(), CameraController.Listener, PhotoProcessor.Lis
                 skinSmoothing = settings.skinSmoothing,
             ),
             multiFrame = settings.multiFrame,
-            nativeSource = settings.captureSource == com.camerapremium.app.settings.CaptureSource.NATIVE,
+            nativeSource = settings.captureSource != com.camerapremium.app.settings.CaptureSource.CUSTOM_BURST,
+            hybridSource = settings.captureSource == com.camerapremium.app.settings.CaptureSource.HYBRID,
         )
         if (l.front && settings.flash != FlashMode.OFF && settings.screenFlash) {
             screenFlash.alpha = 1f; screenFlash.visibility = View.VISIBLE
