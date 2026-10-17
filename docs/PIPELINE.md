@@ -258,3 +258,42 @@ luma ≥ 80% (era 85%; resultado 84%) e cor em sombra < 60% (resultado 55%).
 
 **Ainda sem verificação no aparelho.** A selfie NP tem mais detalhe que a nativa (6,0 × 3,8), mas
 "mais detalhe" não é por si melhor: a nativa suaviza pele de propósito.
+
+## 9. Revisão 0.3.3 — cinco pares reais com a v0.3.2
+
+Pares Original (HAL) × NP, 17/10 15:45–15:50: duas selfies, garrafas (close, f/1.4), cozinheiro
+contra janela, chope (metal cromado).
+
+| cena | detalhe Original → NP | p99 Original → NP | R/G Original → NP |
+|---|---|---|---|
+| selfie A | 6,5 → 5,9 | 213 → 189 | 1,219 → 1,222 |
+| selfie B | 6,0 → 6,6 | 182 → 199 | 1,266 → 1,270 |
+| garrafas | 6,9 → 4,0 | 231 → 204 | 1,196 → 1,198 |
+| cozinheiro | 11,9 → 6,9 | 255 (janela estourada) → 222 | 1,036 → 1,041 |
+| chope | 6,0 → 4,4 | 255 → 228 | 1,092 → 1,090 |
+
+**Resolvido na v0.3.2:** a cor da pele agora coincide com a do sistema (R/G dentro de 0,5%); a
+janela do cozinheiro mantém detalhe (no Original estoura).
+
+**Ainda errado:**
+1. Arco-íris no metal serrilhado do chope: o serrilhado periódico produz *aliasing* até na croma
+   de meia resolução, e ela mesma era usada para decidir se a superfície é neutra.
+2. Brancos baixos nas garrafas/chope. A trava "> 1% de pixels recortados" contava *qualquer*
+   canal: rótulos vermelhos/amarelos saturados desligavam o esticamento do branco e ligavam uma
+   segunda compressão de realces.
+3. Bordas um pouco macias no close das garrafas (a nitidez do ISP está desligada no Híbrido).
+
+**Mudanças:**
+- Referência de neutralidade pela croma de baixa frequência (raio ~12 px); em superfície neutra
+  com textura, até a croma de meia resolução é puxada para ela.
+- Recorte = só pixels brancos (todos os canais); sem trava de recorte no esticamento.
+- Esticamento do branco só nos realces (rostos mantêm a exposição da câmera), alvo 0,85, ganho
+  máx. 1,2, e só em cenas com faixa tonal real (> ~2–3 stops); um assunto plano (parede, tecido)
+  não é "corrigido". O mesmo vale para o ponto preto.
+- Nitidez Híbrida 0,40 → 0,50 (o limitador de overshoot continua impedindo halos).
+
+**Testes:** 59/59. Metal serrilhado: desvio de croma 0,0641 → 0,0070 (com o renderizador anterior,
+0,0140). Tecido com verdade conhecida: erro 1,52 → **1,20**, igual ao da fusão crua (1,20) —
+o resto do pipeline não acrescenta erro; energia de textura 3,33 (real 3,24). O teste de "textura
+de luma mantida" passou a comparar com o mesmo pipeline sem a supressão (a métrica anterior
+dependia do brilho): 2,39 × 2,39.

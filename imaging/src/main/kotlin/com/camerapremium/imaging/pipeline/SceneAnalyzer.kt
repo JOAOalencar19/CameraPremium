@@ -74,6 +74,7 @@ object SceneAnalyzer {
         val r = FloatArray(w * scale); val g = FloatArray(w * scale); val b = FloatArray(w * scale)
         val lens = info.lens.colorMatrix
         var clipped = 0L
+        var whiteClipped = 0L
         for (gy in 0 until gh) {
             val y0 = gy * scale
             val rows = min(scale, h - y0)
@@ -85,7 +86,10 @@ object SceneAnalyzer {
                     val row = yy * w
                     for (x in x0 until x1) {
                         val i = row + x
-                        if (r[i] > 0.985f || g[i] > 0.985f || b[i] > 0.985f) clipped++
+                        if (r[i] > 0.985f || g[i] > 0.985f || b[i] > 0.985f) {
+                            clipped++
+                            if (r[i] > 0.985f && g[i] > 0.985f && b[i] > 0.985f) whiteClipped++
+                        }
                         sr += ColorMath.decode(r[i]); sg += ColorMath.decode(g[i]); sb += ColorMath.decode(b[i]); c++
                     }
                 }
@@ -101,6 +105,9 @@ object SceneAnalyzer {
             }
         }
         val clippedFraction = clipped.toFloat() / (w.toLong() * h).toFloat()
+        // only white (all channels) clipping says the highlights ran out; a saturated label clips
+        // one channel and must not trigger a highlight compression
+        val whiteClippedFraction = whiteClipped.toFloat() / (w.toLong() * h).toFloat()
 
         // ---- 2. white balance refinement
         val wb = WhiteBalance.decide(info, profile, low, n)
@@ -185,14 +192,14 @@ object SceneAnalyzer {
         // The HAL already rolled its highlights into white; compressing them again only made light
         // skin and white surfaces dull (seen in real S26 shots). Only a rendered image with real
         // clipping gets the (mild) compression.
-        val cHi = if (rendered && clippedFraction < 0.002f) 1f
+        val cHi = if (rendered && whiteClippedFraction < 0.002f) 1f
             else if (dh > profile.highlightHeadroomStops) (profile.highlightHeadroomStops / dh).coerceIn(minHi, 1f) else 1f
         val ds = key - p1
         var cLo = if (ds > profile.shadowRangeStops) (profile.shadowRangeStops / ds).coerceIn(minLo, 1f) else 1f
         cLo = Filters.lerp(cLo, 1f, night) // night scenes keep their darkness
 
         val curve = when {
-            info.sourceKind == SourceKind.HYBRID -> hybridLevels(lg2, clippedFraction, night, profile)
+            info.sourceKind == SourceKind.HYBRID -> hybridLevels(lg2, night, profile)
             rendered -> ToneCurve.identity()
             else -> ToneCurve(profile.contrast, profile.shoulderStartStops, 3.2f, profile.blackFlare)
         }
@@ -244,14 +251,20 @@ object SceneAnalyzer {
      * the white point a little; both only partially and with limits, and night scenes keep their
      * darkness.
      */
-    private fun hybridLevels(lg2: FloatArray, clipped: Float, night: Float, profile: ProcessingProfile): ToneCurve {
+    private fun hybridLevels(lg2: FloatArray, night: Float, profile: ProcessingProfile): ToneCurve {
         val s = lg2.copyOf(); s.sort()
         val n = s.size
         val black = Math.pow(2.0, s[(n * 0.005f).toInt().coerceIn(0, n - 1)].toDouble()).toFloat()
         val white = Math.pow(2.0, s[(n * 0.995f).toInt().coerceIn(0, n - 1)].toDouble()).toFloat()
-        val flare = (profile.hybridBlackPull * (black - 0.004f)).coerceIn(0f, 0.02f)
-        var gain = if (clipped > 0.01f) 1f else (profile.hybridWhiteTarget / white.coerceAtLeast(1e-3f)).coerceIn(1f, profile.hybridMaxWhiteGain)
-        gain = Filters.lerp(gain, 1f, night)
+        // A frame-filling flat subject (gray wall, fabric close-up) is legitimately low in
+        // contrast: only scenes that span a real tonal range get the black/white correction.
+        val drStops = FastMath.log2(white.coerceAtLeast(1e-4f) / black.coerceAtLeast(1e-4f))
+        val range = Filters.smoothstep(1.5f, 3f, drStops)
+        val flare = (profile.hybridBlackPull * (black - 0.004f)).coerceIn(0f, 0.02f) * range
+        // (no clipping guard: saturated labels clip one channel without being white, and the soft
+        // knee already keeps stretched highlights below white)
+        var gain = (profile.hybridWhiteTarget / white.coerceAtLeast(1e-3f)).coerceIn(1f, profile.hybridMaxWhiteGain)
+        gain = Filters.lerp(1f, gain, range * (1f - night))
         return ToneCurve.levels(flare, gain)
     }
 }

@@ -39,9 +39,9 @@ data class ProcessingProfile(
     /** HYBRID (HAL tone) only: fraction of the black-point lift removed, linear display units. */
     val hybridBlackPull: Float = 0.5f,
     /** HYBRID only: the 99.5th percentile is stretched toward this display-linear level... */
-    val hybridWhiteTarget: Float = 0.82f,
+    val hybridWhiteTarget: Float = 0.85f,
     /** ...with at most this gain (soft knee above 0.8, never a hard clip). */
-    val hybridMaxWhiteGain: Float = 1.12f,
+    val hybridMaxWhiteGain: Float = 1.2f,
 
     // ---- white balance ----
     /** Fraction of a warm (tungsten) illuminant that is kept, iPhone-like ambience. */
@@ -105,7 +105,7 @@ data class ProcessingProfile(
     val sharpenBurst: Float = 0.38f,
     val sharpenSingleSrgb: Float = 0.24f,
     val sharpenSystemRendered: Float = 0f,
-    val sharpenHybrid: Float = 0.40f,
+    val sharpenHybrid: Float = 0.50f,
     /** Gaussian sigma (px at 12 MP) of the unsharp mask; scaled with resolution. */
     val sharpenRadius: Float = 0.9f,
     /** Absolute coring threshold (Oklab L) added to the noise-based one. */

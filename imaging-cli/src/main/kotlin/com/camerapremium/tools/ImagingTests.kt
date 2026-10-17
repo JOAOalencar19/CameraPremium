@@ -469,8 +469,10 @@ object ImagingTests {
         val (out, _) = process(speckled, SourceKind.HYBRID)
         val dIn = chromaStats(speckled)[0]; val dClean = chromaStats(clean)[0]; val dOut = chromaStats(out)[0]
         check("arco-iris removido da textura", dOut < dClean + 0.35 * (dIn - dClean), "desvio de croma: limpo %.4f, com cor falsa %.4f, saida %.4f".format(dClean, dIn, dOut))
-        val tIn = ImageMetrics.stats(clean).midBandEnergy; val tOut = ImageMetrics.stats(out).midBandEnergy
-        check("textura de luma mantida", tOut > tIn * 0.8, "energia %.2f -> %.2f".format(tIn, tOut))
+        // the suppression works on chroma only: luma texture must match the pipeline without it
+        val (ref, _) = process(speckled, SourceKind.HYBRID, profile = ProcessingProfile.NATURAL_PREMIUM.copy(falseColorSuppression = 0f))
+        val tRef = ImageMetrics.stats(ref).midBandEnergy; val tOut = ImageMetrics.stats(out).midBandEnergy
+        check("textura de luma intocada pela supressao", tOut > tRef * 0.98, "energia sem supressao %.2f, com %.2f".format(tRef, tOut))
         // dark mesh with colored glints (bar ceiling): shadows hide the luma texture confidence
         val dark = ArgbImage(w, h)
         val rd = java.util.Random(78)
@@ -482,6 +484,20 @@ object ImagingTests {
         val (darkOut, _) = process(dark, SourceKind.HYBRID)
         val ddIn = chromaStats(dark)[0]; val ddOut = chromaStats(darkOut)[0]
         check("pontos coloridos em sombra contidos", ddOut < ddIn * 0.6, "desvio de croma %.4f -> %.4f".format(ddIn, ddOut))
+        // knurled metal: periodic neutral ridges whose demosaic aliasing tints alternate ridges
+        // (yellow/violet). Even the half-resolution chroma carries this, so it needs the
+        // low-frequency neutral reference.
+        val knurl = ArgbImage(w, h)
+        for (y in 0 until h) for (x in 0 until w) {
+            val ph = (x + y / 3) % 6
+            val v = if (ph < 3) 200 else 90
+            val t = if (((x + y / 3) / 6) % 2 == 0) 22 else -22
+            knurl.pixels[y * w + x] = Synthetic.rgb((v + t).coerceIn(0, 255), (v + t).coerceIn(0, 255), (v - t).coerceIn(0, 255))
+        }
+        val (kOut, _) = process(knurl, SourceKind.HYBRID)
+        val kIn = chromaStats(knurl)[0]; val kO = chromaStats(kOut)[0]
+        check("arco-iris em metal serrilhado (periodico) contido", kO < kIn * 0.5, "desvio de croma %.4f -> %.4f".format(kIn, kO))
+        DesktopIO.write(DesktopIO.sideBySide(knurl, kOut), File(outDir, "teste_cor_falsa_serrilhado.png"))
         // real fine color detail (red/green stripes, 4 px) must keep its color
         val stripes = ArgbImage(w, h)
         for (y in 0 until h) for (x in 0 until w) stripes.pixels[y * w + x] = if ((x / 4) % 2 == 0) Synthetic.rgb(190, 60, 50) else Synthetic.rgb(60, 150, 70)

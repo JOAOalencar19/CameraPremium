@@ -139,6 +139,12 @@ class TileRenderer(
         Filters.applyCoefficients(ws.hL, ws.hc1, ws.hc2, ws.hB2, hn)
         val cs = profile.chromaNrStrength * (if (rendered) 0.6f else 1f)
         val fcs = if (rendered) 0f else profile.falseColorSuppression
+        // Low-frequency chroma (radius ~12 px): the reference for "this surface is neutral". The
+        // half-res chroma itself can alias on periodic metal (knurling), so it can't judge that.
+        if (fcs > 0f) {
+            Filters.boxMean(ws.hA2, ws.hc1, hw, hh, 6, ws.hL)
+            Filters.boxMean(ws.hB2, ws.hc2, hw, hh, 6, ws.hL)
+        }
         for (yy in 0 until ph) {
             val fy = (yy - 0.5f) * 0.5f
             for (xx in 0 until pw) {
@@ -153,14 +159,22 @@ class TileRenderer(
                 // texture confidence from the luma filter: false color lives on fine luma texture
                 // on near-neutral surfaces (metal, text, chains), where a rainbow is most visible.
                 // Saturated fine detail (colored fabric) keeps its full-resolution chroma.
-                val neutral = 1f - Filters.smoothstep(0.03f, 0.08f, sqrt(af * af + bf * bf))
-                // In shadows the luma texture is often below the noise-based confidence, yet glints
-                // in a dark mesh show the same speckle: shadows count as texture for this purpose.
-                val dark = 1f - Filters.smoothstep(0.25f, 0.45f, ws.ld[i])
-                val fcw = maxOf(ws.ca[i].coerceIn(0f, 1f), dark)
-                val keep = Filters.smoothstep(thr, 2f * thr, mag) * (1f - fcs * neutral * fcw)
-                ws.okA[i] = af + keep * da
-                ws.okB[i] = bf + keep * db
+                var al = af; var bl = bf; var neutral = 0f; var fcw = 0f
+                if (fcs > 0f) {
+                    al = Filters.sampleBilinear(ws.hc1, hw, hh, fx, fy)
+                    bl = Filters.sampleBilinear(ws.hc2, hw, hh, fx, fy)
+                    neutral = 1f - Filters.smoothstep(0.03f, 0.08f, sqrt(al * al + bl * bl))
+                    // In shadows the luma texture is often below the noise-based confidence, yet
+                    // glints in a dark mesh show the same speckle: shadows count as texture here.
+                    val dark = 1f - Filters.smoothstep(0.25f, 0.45f, ws.ld[i])
+                    fcw = fcs * neutral * maxOf(ws.ca[i].coerceIn(0f, 1f), dark)
+                }
+                val keep = Filters.smoothstep(thr, 2f * thr, mag) * (1f - fcw)
+                // on a neutral textured surface even the half-res chroma is pulled to the local
+                // low-frequency color: aliasing at half resolution (knurled metal) goes too
+                val ab = af + fcw * (al - af); val bb = bf + fcw * (bl - bf)
+                ws.okA[i] = ab + keep * da
+                ws.okB[i] = bb + keep * db
             }
         }
 

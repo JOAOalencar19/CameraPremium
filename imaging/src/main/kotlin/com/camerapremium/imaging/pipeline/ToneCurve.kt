@@ -48,8 +48,14 @@ class ToneCurve(
         val n = d / dWhite
         val f = ((n - flare) / (1f - flare)).coerceAtLeast(0f)
         if (gain == 1f) return f
-        val g = f * gain
+        // the stretch acts on highlights only: midtones (faces) keep the camera's exposure
+        val g = f * (1f + (gain - 1f) * smooth(0.1f, 0.7f, f))
         return if (g <= KNEE) g else KNEE + (1f - KNEE) * kotlin.math.tanh((g - KNEE) / (1f - KNEE))
+    }
+
+    private fun smooth(e0: Float, e1: Float, x: Float): Float {
+        val t = ((x - e0) / (e1 - e0)).coerceIn(0f, 1f)
+        return t * t * (3f - 2f * t)
     }
 
     /** Display-linear value (0..~1, >1 only for out-of-range) for log2 scene luminance. */
